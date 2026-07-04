@@ -36,6 +36,9 @@ local state = {
     map_files = {},
     active_file_index = nil,
     active_file_name = nil,
+    dirty = false,
+    confirm_action = nil,
+    confirm_target = nil,
     space_down = false,
 }
 
@@ -136,6 +139,37 @@ end
 local function selectSwatch(delta)
     state.swatch_index = ((state.swatch_index - 1 + delta) % SWATCH_COUNT) + 1
     state.message = ("Selected swatch %d."):format(state.swatch_index)
+end
+
+local function markDirty()
+    state.dirty = true
+    state.confirm_action = nil
+    state.confirm_target = nil
+end
+
+local function markClean()
+    state.dirty = false
+    state.confirm_action = nil
+    state.confirm_target = nil
+end
+
+local function requestConfirmation(action, target, message)
+    if state.confirm_action == action and state.confirm_target == target then
+        state.confirm_action = nil
+        state.confirm_target = nil
+        return true
+    end
+
+    state.confirm_action = action
+    state.confirm_target = target
+    state.message = message
+
+    return false
+end
+
+local function cancelConfirmation()
+    state.confirm_action = nil
+    state.confirm_target = nil
 end
 
 local function tileKey(q, r)
@@ -249,6 +283,7 @@ local function setTile(q, r, value)
             swatch = state.swatch_index,
             color = copyColor(getActiveSwatch()),
         }
+        markDirty()
     else
         for door_id, door in pairs(state.doors) do
             if doorEndpointKey(door.a) == key or doorEndpointKey(door.b) == key then
@@ -257,6 +292,7 @@ local function setTile(q, r, value)
         end
 
         state.tiles[key] = nil
+        markDirty()
     end
 end
 
@@ -272,6 +308,8 @@ local function toggleStartAt(q, r)
     else
         state.message = ("Cleared start at q=%d r=%d"):format(q, r)
     end
+
+    markDirty()
 end
 
 local function applyBrush(x, y, value)
@@ -318,6 +356,8 @@ local function toggleDoorAt(q, r)
         state.doors[key] = { a = first, b = second }
         state.message = "Door placed."
     end
+
+    markDirty()
 end
 
 local function sortedTiles()
@@ -359,9 +399,33 @@ local function scanMapFiles()
     table.sort(state.map_files)
 end
 
+local function mapFileExists(file_name)
+    for _, map_file in ipairs(state.map_files) do
+        if map_file == file_name then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function getNextAvailableFileName()
+    scanMapFiles()
+
+    while mapFileExists(("map_%03d.lua"):format(state.export_index)) do
+        state.export_index = state.export_index + 1
+    end
+
+    return ("map_%03d.lua"):format(state.export_index)
+end
+
 local function getExportPath()
     local file_name = state.active_file_name or ("map_%03d.lua"):format(state.export_index)
 
+    return joinPath(getNativeOutputDir(), file_name), file_name
+end
+
+local function getExportPathForFile(file_name)
     return joinPath(getNativeOutputDir(), file_name), file_name
 end
 
@@ -380,9 +444,7 @@ local function writeFile(path, data)
     return true
 end
 
-local function serializeMap()
-    local _, file_name = getExportPath()
-
+local function serializeMap(file_name)
     local lines = {
         "return {",
         ("    id = %q,"):format(getBaseName(file_name)),
@@ -446,7 +508,16 @@ end
 
 local function exportMap()
     local path, file_name = getExportPath()
-    local ok, err = writeFile(path, serializeMap())
+
+    if state.dirty and state.active_file_name then
+        local message = ("Unsaved changes. Press E again to overwrite %s."):format(file_name)
+
+        if not requestConfirmation("export", file_name, message) then
+            return
+        end
+    end
+
+    local ok, err = writeFile(path, serializeMap(file_name))
 
     if not ok then
         state.message = "Export failed: " .. tostring(err)
@@ -469,6 +540,34 @@ local function exportMap()
         state.export_index = state.export_index + 1
     end
 
+    markClean()
+    print(state.message)
+end
+
+local function saveAsMap()
+    local file_name = getNextAvailableFileName()
+    local path = getExportPathForFile(file_name)
+    local ok, err = writeFile(path, serializeMap(file_name))
+
+    if not ok then
+        state.message = "Save As failed: " .. tostring(err)
+        print(state.message)
+        return
+    end
+
+    state.message = "Saved as " .. joinPath(OUTPUT_DIR, file_name)
+    state.active_file_name = file_name
+    scanMapFiles()
+
+    for index, map_file in ipairs(state.map_files) do
+        if map_file == file_name then
+            state.active_file_index = index
+            break
+        end
+    end
+
+    state.export_index = state.export_index + 1
+    markClean()
     print(state.message)
 end
 
@@ -480,8 +579,19 @@ local function loadMapFile(index)
         return
     end
 
-    state.active_file_index = ((index - 1) % #state.map_files) + 1
-    state.active_file_name = state.map_files[state.active_file_index]
+    local next_index = ((index - 1) % #state.map_files) + 1
+    local next_file_name = state.map_files[next_index]
+
+    if state.dirty then
+        local message = ("Unsaved changes. Press load again to discard and load %s."):format(next_file_name)
+
+        if not requestConfirmation("load", next_file_name, message) then
+            return
+        end
+    end
+
+    state.active_file_index = next_index
+    state.active_file_name = next_file_name
 
     local module_path = ("data.map_files.%s"):format(getBaseName(state.active_file_name))
     package.loaded[module_path] = nil
@@ -519,6 +629,7 @@ local function loadMapFile(index)
     end
 
     state.message = ("Loaded %s"):format(state.active_file_name)
+    markClean()
     print(state.message)
 end
 
@@ -595,8 +706,9 @@ end
 
 local function drawStatus()
     local active_file = state.active_file_name or ("map_%03d.lua"):format(state.export_index)
+    local dirty_text = state.dirty and "*" or "saved"
     local text = ("%s   Mode: %s   Palette: %d   Swatch: %d   File: %s   Tiles: %d")
-        :format(state.message, state.paint_mode, state.palette_id, state.swatch_index, active_file, #sortedTiles())
+        :format(state.message, state.paint_mode, state.palette_id, state.swatch_index, active_file .. " " .. dirty_text, #sortedTiles())
 
     love.graphics.setColor(0, 0, 0, 0.48)
     love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), 76)
@@ -663,27 +775,36 @@ function editor.keypressed(key)
             love.event.quit()
         end
     elseif key == "r" then
+        cancelConfirmation()
         state.paint_mode = "room"
         state.door_selection = nil
         state.message = "Painting room hexes."
     elseif key == "c" then
+        cancelConfirmation()
         state.paint_mode = "corridor"
         state.door_selection = nil
         state.message = "Painting corridor hexes."
     elseif key == "," then
+        cancelConfirmation()
         selectSwatch(-1)
     elseif key == "." then
+        cancelConfirmation()
         selectSwatch(1)
     elseif key:match("^%d$") then
+        cancelConfirmation()
         local palette_id = key == "0" and 10 or tonumber(key)
 
         loadPalette(palette_id)
     elseif key == "d" then
+        cancelConfirmation()
         state.paint_mode = "door"
         state.door_selection = nil
         state.message = "Door mode: click two adjacent hexes."
     elseif key == "e" or key == "return" or key == "kpenter" then
         exportMap()
+    elseif key == "a" then
+        cancelConfirmation()
+        saveAsMap()
     elseif key == "l" then
         loadMapFile(state.active_file_index or 1)
     elseif key == "]" then
@@ -691,12 +812,18 @@ function editor.keypressed(key)
     elseif key == "[" then
         loadMapFile((state.active_file_index or 2) - 1)
     elseif key == "delete" or key == "backspace" then
+        if state.dirty and not requestConfirmation("clear", "current", "Unsaved changes. Press clear again to discard and clear.") then
+            return
+        end
+
         state.tiles = {}
         state.doors = {}
         state.active_file_name = nil
         state.active_file_index = nil
         state.message = "Cleared map."
+        markDirty()
     elseif key == "home" then
+        cancelConfirmation()
         state.camera_x = 0
         state.camera_y = 0
         state.message = "Reset camera."
@@ -718,19 +845,24 @@ end
 
 function editor.mousepressed(x, y, button)
     if state.paint_mode == "door" and button == 1 and not state.space_down then
+        cancelConfirmation()
         local q, r = screenToTile(x, y)
 
         toggleDoorAt(q, r)
     elseif state.paint_mode == "door" and button == 2 then
+        cancelConfirmation()
         state.door_selection = nil
         state.message = "Door selection cancelled."
     elseif button == 1 and not state.space_down then
+        cancelConfirmation()
         state.dragging = true
         applyBrush(x, y, true)
     elseif button == 2 then
+        cancelConfirmation()
         state.erase_dragging = true
         applyBrush(x, y, false)
     elseif button == 3 or state.space_down then
+        cancelConfirmation()
         state.pan_dragging = true
     end
 end

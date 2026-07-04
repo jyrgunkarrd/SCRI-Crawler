@@ -6,7 +6,6 @@ local agents = {
     {
 
         id = "MAM",
-        fullimg = "MAMfull",
         name = "Mammoth",
         slots = {
 
@@ -24,6 +23,7 @@ local agents = {
         },
         stats = {
             {hp = 50},
+            {ap = 5},
             {strength = 2},
             {agility = 0},
             {lex = 1}, 
@@ -36,9 +36,7 @@ local agents = {
     {
 
         id = "APEX",
-        fullimg = "APEXfull",
         name = "Apex",
-        method = "crusade", 
         slots = {
 
             "Head",
@@ -52,20 +50,22 @@ local agents = {
             "Belt",
 
         },
-        nweap = "MMA",
-        nprot = "FLESH",
+        stats = {
+            {hp = 40},
+            {ap = 5},
+            {strength = 1},
+            {agility = 2},
+            {lex = 1}, 
+        },
         fate = "BSCSTACK",
-        pulseshout = "I see them.",
+        shout_select = "I see them.",
 
     },
 
     {
 
         id = "SAW",
-        fullimg = "SAWfull",
         name = "Snow & Miss White",
-        method = "beast", 
-
         slots = {
 
             "Head",
@@ -80,19 +80,22 @@ local agents = {
             "Ally",
 
         },
-        nweap = "FIST",
-        nprot = "FLESH",
+        stats = {
+            {hp = 30},
+            {ap = 5},
+            {strength = 0},
+            {agility = 4},
+            {lex = 1}, 
+        },
         fate = "BSCSTACK",
-        pulseshout = "We're ready.",
+        shout_select = "We're ready.",
 
     },
 
     {
 
         id = "WICK",
-        fullimg = "WICKfull",
         name = "Wick",
-        method = "inferno", 
         slots = {
 
             "Head",
@@ -107,19 +110,22 @@ local agents = {
             "Ally",
 
         },
-        nweap = "FIST",
-        nprot = "AUG",
+        stats = {
+            {hp = 10},
+            {ap = 5},
+            {strength = 0},
+            {agility = 0},
+            {lex = 7}, 
+        },
         fate = "BSCSTACK",
-        pulseshout = "Say the word.",
+        shout_select = "Say the word.",
 
     },
 
     {
 
         id = "BMNCH",
-        fullimg = "BMNCHfull",
         name = "Big Munch",
-        method = "rampage", 
         slots = {
 
             "Head",
@@ -134,19 +140,22 @@ local agents = {
             "Lex",
 
         },
-        nweap = "SPRNAT",
-        nprot = "SHELL",
+        stats = {
+            {hp = 60},
+            {ap = 5},
+            {strength = 1},
+            {agility = 0},
+            {lex = 1}, 
+        },
         fate = "BSCSTACK",
-        pulseshout = "MUNCH HUNGRY!",
+        shout_select = "MUNCH HUNGRY!",
 
     },
 
     {
 
         id = "B6",
-        fullimg = "B6full",
         name = "Betty Six",
-        method = "trigger", 
         slots = {
 
             "Head",
@@ -161,19 +170,22 @@ local agents = {
             "Ally",
 
         },
-        nweap = "FIST",
-        nprot = "AUG",
+        stats = {
+            {hp = 30},
+            {ap = 5},
+            {strength = 2},
+            {agility = 3},
+            {lex = 0}, 
+        },
         fate = "BSCSTACK",
-        pulseshout = "They're dead already.",
+        shout_select = "They're dead already.",
 
     },
 
     {
 
         id = "TMW",
-        fullimg = "TMWfull",
         name = "Tomorrow",
-        method = "gate", 
         slots = {
 
             "Head",
@@ -187,10 +199,15 @@ local agents = {
             "Lex",
             "Lex",
         },
-        nweap = "FIST",
-        nprot = "AUG",
+        stats = {
+            {hp = 20},
+            {ap = 5},
+            {strength = 1},
+            {agility = 4},
+            {lex = 1}, 
+        },
         fate = "BSCSTACK",
-        pulseshout = "Good news?",
+        shout_select = "Good news?",
 
     },
 

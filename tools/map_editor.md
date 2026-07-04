@@ -29,11 +29,20 @@ Controls:
 - Hold `Space` and drag: pan canvas
 - Mouse wheel: adjust editor hex display size
 - `E`, `Enter`, or keypad `Enter`: export map
+- `A`: save as the next unused `map_###.lua`
 - `L`: load the current map file, or the first map file if none is active
 - `[` / `]`: load previous / next map file
 - `Delete` / `Backspace`: clear current map
 - `Home`: reset camera
 - `Esc`: quit
+
+Dirty-state protection:
+
+- `*` beside the filename means the map has unsaved changes.
+- Press export twice to overwrite a loaded dirty map.
+- Save As always writes to the next unused map file and then makes it active.
+- Press load / previous / next twice to discard unsaved changes and load another map.
+- Press clear twice to discard unsaved changes and clear the map.
 
 Export format:
 

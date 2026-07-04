@@ -7,10 +7,14 @@ local OUTPUT_DIR = "assets/images/processed"
 local EXPORT_SIZE = 512
 local EXPORT_RADIUS = EXPORT_SIZE / 2
 local PREVIEW_RADIUS = 310
+local GAME_HEX_SIZE = 54
+local GAME_PORTRAIT_RADIUS = GAME_HEX_SIZE * 0.78
 local BACKGROUND_COLOR = { 0.055, 0.058, 0.068, 1 }
 local MASK_COLOR = { 0.09, 0.095, 0.105, 0.72 }
 local OVERLAY_COLOR = { 0.95, 0.86, 0.56, 0.9 }
 local OVERLAY_FILL_COLOR = { 1, 1, 1, 0.055 }
+local PREVIEW_TILE_COLOR = { 0.33, 0.49, 0.42, 1 }
+local PREVIEW_OUTLINE_COLOR = { 0.015, 0.012, 0.01, 1 }
 local TEXT_COLOR = { 0.88, 0.88, 0.82, 1 }
 
 local state = {
@@ -214,6 +218,33 @@ local function drawHexMask(center_x, center_y)
     love.graphics.setLineWidth(1)
 end
 
+local function drawGamePreview()
+    local margin = 26
+    local center_x = margin + GAME_HEX_SIZE
+    local center_y = love.graphics.getHeight() - margin - GAME_HEX_SIZE
+    local tile_points = buildHexPoints(center_x, center_y, GAME_HEX_SIZE)
+    local portrait_points = buildHexPoints(center_x, center_y, GAME_PORTRAIT_RADIUS)
+    local scale_factor = GAME_PORTRAIT_RADIUS / PREVIEW_RADIUS
+
+    love.graphics.setColor(PREVIEW_TILE_COLOR)
+    love.graphics.polygon("fill", tile_points)
+
+    love.graphics.stencil(function()
+        love.graphics.polygon("fill", portrait_points)
+    end, "replace", 1)
+
+    love.graphics.setStencilTest("equal", 1)
+    love.graphics.setColor(1, 1, 1, 1)
+    drawImageAt(center_x, center_y, scale_factor)
+    love.graphics.setStencilTest()
+
+    love.graphics.setColor(PREVIEW_OUTLINE_COLOR)
+    love.graphics.setLineWidth(3)
+    love.graphics.polygon("line", portrait_points)
+    love.graphics.setLineWidth(1)
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
 local function drawStatus()
     local file_text = state.message
 
@@ -309,6 +340,7 @@ function editor.draw()
     love.graphics.setColor(1, 1, 1, 1)
     drawImageAt(center_x, center_y, 1)
     drawHexMask(center_x, center_y)
+    drawGamePreview()
     drawStatus()
 end
 
