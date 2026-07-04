@@ -1,21 +1,27 @@
 local map_tiles = {}
+local image_loader = require("src.assets.image_loader")
 
 local HEX_SIZE = 54
 local SQRT_3 = math.sqrt(3)
 local TILE_COLOR = { 0.33, 0.49, 0.42, 1 }
 local CORRIDOR_COLOR = { 0.27, 0.39, 0.35, 1 }
+local TEST_PORTRAIT_PATH = "assets/images/TMR_hex.webp"
+local PORTRAIT_RADIUS = HEX_SIZE * 0.78
+local PORTRAIT_OUTLINE_COLOR = { 0.015, 0.012, 0.01, 1 }
+local test_portrait
 
 local function axialToPixel(q, r)
     return HEX_SIZE * SQRT_3 * (q + r / 2), HEX_SIZE * 1.5 * r
 end
 
-local function buildHexPoints(center_x, center_y)
+local function buildHexPoints(center_x, center_y, radius)
     local points = {}
+    radius = radius or HEX_SIZE
 
     for index = 0, 5 do
         local angle = math.rad(-90 + index * 60)
-        points[#points + 1] = center_x + HEX_SIZE * math.cos(angle)
-        points[#points + 1] = center_y + HEX_SIZE * math.sin(angle)
+        points[#points + 1] = center_x + radius * math.cos(angle)
+        points[#points + 1] = center_y + radius * math.sin(angle)
     end
 
     return points
@@ -49,6 +55,51 @@ local function getCenteredOffset(room)
     return (screen_width - room_width) / 2 - min_x, (screen_height - room_height) / 2 - min_y
 end
 
+local function getTestPortrait()
+    if not test_portrait then
+        test_portrait = image_loader.newImage(TEST_PORTRAIT_PATH)
+    end
+
+    return test_portrait
+end
+
+local function shouldDrawTestPortrait(tile)
+    return tile.start
+end
+
+local function drawPortraitTile(tile, center_x, center_y)
+    if not shouldDrawTestPortrait(tile) then
+        return
+    end
+
+    local image = getTestPortrait()
+    local points = buildHexPoints(center_x, center_y, PORTRAIT_RADIUS)
+    local scale = (PORTRAIT_RADIUS * 2) / math.min(image:getWidth(), image:getHeight())
+
+    love.graphics.stencil(function()
+        love.graphics.polygon("fill", points)
+    end, "replace", 1)
+
+    love.graphics.setStencilTest("equal", 1)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(
+        image,
+        center_x,
+        center_y,
+        0,
+        scale,
+        scale,
+        image:getWidth() / 2,
+        image:getHeight() / 2
+    )
+    love.graphics.setStencilTest()
+
+    love.graphics.setColor(PORTRAIT_OUTLINE_COLOR)
+    love.graphics.setLineWidth(3)
+    love.graphics.polygon("line", points)
+    love.graphics.setLineWidth(1)
+end
+
 function map_tiles.axialToPixel(q, r)
     return axialToPixel(q, r)
 end
@@ -77,13 +128,19 @@ function map_tiles.draw(room, camera_x, camera_y)
     for _, tile in ipairs(room.tiles) do
         local x, y = axialToPixel(tile.q, tile.r)
 
-        if tile.corridor then
+        if tile.color then
+            love.graphics.setColor(tile.color)
+        elseif tile.corridor then
             love.graphics.setColor(CORRIDOR_COLOR)
         else
             love.graphics.setColor(TILE_COLOR)
         end
 
-        love.graphics.polygon("fill", buildHexPoints(x + offset_x, y + offset_y))
+        local center_x = x + offset_x
+        local center_y = y + offset_y
+
+        love.graphics.polygon("fill", buildHexPoints(center_x, center_y))
+        drawPortraitTile(tile, center_x, center_y)
     end
 
     love.graphics.setColor(1, 1, 1, 1)

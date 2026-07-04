@@ -11,14 +11,8 @@ local map_pieces = {
         min_hex = 19,
         max_hex = 19,
         exits = {
-            "N",
-            "NE",
             "E",
-            "SE",
-            "S",
-            "SW",
             "W",
-            "NW",
         },
 
     },

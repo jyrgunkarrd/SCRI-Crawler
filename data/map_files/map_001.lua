@@ -1,0 +1,25 @@
+return {
+    id = "map_001",
+    tiles = {
+        { q = 5, r = -6, palette = 1, swatch = 2, color = { 0.9961, 0.3373, 0.1765, 1.0000 } },
+        { q = 6, r = -6, palette = 1, swatch = 2, color = { 0.9961, 0.3373, 0.1765, 1.0000 } },
+        { q = 5, r = -5, palette = 1, swatch = 2, color = { 0.9961, 0.3373, 0.1765, 1.0000 } },
+        { q = 6, r = -5, palette = 1, swatch = 2, color = { 0.9961, 0.3373, 0.1765, 1.0000 } },
+        { q = 4, r = -4, corridor = true, palette = 1, swatch = 5, color = { 0.2902, 0.2706, 0.2941, 1.0000 } },
+        { q = 3, r = -3, corridor = true, palette = 1, swatch = 5, color = { 0.2902, 0.2706, 0.2941, 1.0000 } },
+        { q = 2, r = -2, corridor = true, palette = 1, swatch = 5, color = { 0.2902, 0.2706, 0.2941, 1.0000 } },
+        { q = 1, r = -1, corridor = true, palette = 1, swatch = 5, color = { 0.2902, 0.2706, 0.2941, 1.0000 } },
+        { q = -1, r = 0, palette = 1, swatch = 1, color = { 0.9961, 0.9373, 0.7333, 1.0000 } },
+        { q = 0, r = 0, palette = 1, swatch = 1, color = { 0.9961, 0.9373, 0.7333, 1.0000 } },
+        { q = -2, r = 1, palette = 1, swatch = 1, color = { 0.9961, 0.9373, 0.7333, 1.0000 } },
+        { q = 0, r = 1, palette = 1, swatch = 1, color = { 0.9961, 0.9373, 0.7333, 1.0000 } },
+        { q = -3, r = 2, palette = 1, swatch = 1, color = { 0.9961, 0.9373, 0.7333, 1.0000 } },
+        { q = -2, r = 2, palette = 1, swatch = 1, color = { 0.9961, 0.9373, 0.7333, 1.0000 } },
+        { q = -1, r = 2, palette = 1, swatch = 1, color = { 0.9961, 0.9373, 0.7333, 1.0000 } },
+        { q = -2, r = 3, start = true, palette = 1, swatch = 1, color = { 0.9961, 0.9373, 0.7333, 1.0000 } },
+    },
+    doors = {
+        { a = { q = 1, r = -1 }, b = { q = 0, r = 0 } },
+        { a = { q = 4, r = -4 }, b = { q = 5, r = -5 } },
+    },
+}

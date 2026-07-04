@@ -14,3 +14,15 @@ Lex would be... an additional resource that is then converted into extra riders 
  
 
 Let's start with a grid size of 19 just to check our assumptions
+
+
+
+Okay, no, we're doing bespoke maps using a map editor. No procedural maps.
+
+
+...We need to just build Black Barrow and do a test of that bespoke map.
+
+To do that, we just need to set-up characters, their modifier decks, their action decks and a combat system.
+
+
+

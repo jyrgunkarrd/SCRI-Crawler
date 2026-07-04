@@ -1,0 +1,51 @@
+# Map Editor
+
+Run from the project root:
+
+```bash
+love . --map-editor
+```
+
+Exports are written to:
+
+```text
+data/map_files
+```
+
+Controls:
+
+- Left click / drag: place hexes
+- Right click / drag: erase hexes
+- `S`: toggle start marker on the hovered hex
+- `R`: paint room hexes
+- `C`: paint corridor hexes
+- `D`: door mode
+- In door mode, left click two adjacent existing hexes to toggle a door
+- In door mode, right click or `Esc` cancels the current door selection
+- `1`-`9`: load palette 1-9 from `assets/map_palettes`
+- `0`: load palette 10 from `assets/map_palettes`
+- `,` / `.`: select previous / next color swatch
+- Middle mouse drag: pan canvas
+- Hold `Space` and drag: pan canvas
+- Mouse wheel: adjust editor hex display size
+- `E`, `Enter`, or keypad `Enter`: export map
+- `L`: load the current map file, or the first map file if none is active
+- `[` / `]`: load previous / next map file
+- `Delete` / `Backspace`: clear current map
+- `Home`: reset camera
+- `Esc`: quit
+
+Export format:
+
+```lua
+return {
+    id = "map_001",
+    tiles = {
+        { q = 0, r = 0, start = true, palette = 1, swatch = 1, color = { 0.2800, 0.4200, 0.3600, 1.0000 } },
+        { q = 1, r = 0, corridor = true, palette = 1, swatch = 2, color = { 0.2100, 0.3200, 0.2900, 1.0000 } },
+    },
+    doors = {
+        { a = { q = 0, r = 0 }, b = { q = 1, r = 0 } },
+    },
+}
+```

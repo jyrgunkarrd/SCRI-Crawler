@@ -5,6 +5,9 @@ local overlays = {}
 local HOVER_COLOR = { 1, 1, 1, 0.16 }
 local EXIT_MARKER_COLOR = { 0.88, 0.78, 0.48, 0.9 }
 local EXIT_MARKER_RADIUS = 13
+local DOOR_FILL_COLOR = { 1, 1, 1, 1 }
+local DOOR_OUTLINE_COLOR = { 0.025, 0.02, 0.018, 1 }
+local DOOR_RADIUS = 14
 
 local function getDrawOffset(room, camera_x, camera_y)
     local offset_x, offset_y = map_tiles.getCenteredOffset(room)
@@ -52,6 +55,32 @@ local function getHoveredTile(room, mouse_x, mouse_y, camera_x, camera_y)
     end
 
     return nil
+end
+
+function overlays.drawDoors(room, camera_x, camera_y)
+    if not room or not room.doors then
+        return
+    end
+
+    local offset_x, offset_y = getDrawOffset(room, camera_x, camera_y)
+
+    for _, door in ipairs(room.doors) do
+        if door.a and door.b then
+            local ax, ay = map_tiles.axialToPixel(door.a.q, door.a.r)
+            local bx, by = map_tiles.axialToPixel(door.b.q, door.b.r)
+            local midpoint_x = (ax + bx) / 2 + offset_x
+            local midpoint_y = (ay + by) / 2 + offset_y
+
+            love.graphics.setColor(DOOR_FILL_COLOR)
+            love.graphics.circle("fill", midpoint_x, midpoint_y, DOOR_RADIUS)
+            love.graphics.setColor(DOOR_OUTLINE_COLOR)
+            love.graphics.setLineWidth(3)
+            love.graphics.circle("line", midpoint_x, midpoint_y, DOOR_RADIUS)
+        end
+    end
+
+    love.graphics.setLineWidth(1)
+    love.graphics.setColor(1, 1, 1, 1)
 end
 
 function overlays.drawExitMarkers(room, camera_x, camera_y)
