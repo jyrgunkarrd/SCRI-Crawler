@@ -99,6 +99,7 @@ local overlays = require("src.rndr.overlays")
 local camera = require("src.rndr.camera")
 local agent_logic = require("src.sys.agent_logic")
 local agent_uix = require("src.rndr.agent_uix")
+local deck_hand_vis = require("src.rndr.deck_hand_vis")
 
 local room
 local DEV_MAP_CONFIG_PATH = "data.dev_map"
@@ -284,6 +285,7 @@ function love.load()
 
     room = loadMapFile()
     agent_logic.clearSelection()
+    deck_hand_vis.load()
     camera.reset()
 end
 
@@ -291,15 +293,20 @@ function love.update(dt)
     camera.update(dt, room)
     local camera_x, camera_y = camera.getOffset()
 
-    agent_logic.update(dt, room, camera_x, camera_y)
+    agent_logic.update(dt, room, camera_x, camera_y, agent_uix.isModalOpen())
 end
 
 function love.draw()
     local camera_x, camera_y = camera.getOffset()
+    local modal_open = agent_uix.isModalOpen()
 
     map_tiles.drawBase(room, camera_x, camera_y)
-    overlays.drawMovementRange(room, camera_x, camera_y, agent_logic.getMovementRange())
-    overlays.drawHover(room, camera_x, camera_y)
+    if not modal_open then
+        overlays.drawMovementRange(room, camera_x, camera_y, agent_logic.getMovementRange())
+    end
+    if not modal_open then
+        overlays.drawHover(room, camera_x, camera_y)
+    end
     local movement_animation = agent_logic.getMovementAnimation()
 
     map_tiles.drawPortraits(
@@ -310,19 +317,29 @@ function love.draw()
         movement_animation and movement_animation.agent or nil
     )
     map_tiles.drawMovingAgent(room, camera_x, camera_y, movement_animation)
-    overlays.drawMovementPreview(room, camera_x, camera_y, agent_logic.getMovementPreview(), agent_logic.getSelectedAgent())
+    if not modal_open then
+        overlays.drawMovementPreview(room, camera_x, camera_y, agent_logic.getMovementPreview(), agent_logic.getSelectedAgent())
+    end
     map_tiles.drawSelectionShout(room, camera_x, camera_y, agent_logic.getSelectedTile(), agent_logic.getSelectionShout())
     overlays.drawDoors(room, camera_x, camera_y)
     overlays.drawExitMarkers(room, camera_x, camera_y)
     agent_uix.draw()
+
+    if not modal_open then
+        deck_hand_vis.draw()
+    end
 end
 
 function love.keypressed(key)
     if key == "escape" then
-        love.event.quit()
+        if not agent_uix.closeModal() then
+            love.event.quit()
+        end
     elseif key == "r" then
+        agent_uix.closeModal()
         room = loadMapFile()
         agent_logic.clearSelection()
+        deck_hand_vis.reload()
         camera.reset()
     elseif key == "," then
         agent_logic.selectAdjacentAgent(room, -1)
@@ -332,6 +349,14 @@ function love.keypressed(key)
 end
 
 function love.mousepressed(x, y, button)
+    if agent_uix.mousepressed(x, y, button) then
+        return
+    end
+
+    if agent_uix.isModalOpen() then
+        return
+    end
+
     local camera_x, camera_y = camera.getOffset()
 
     if not agent_logic.handleMousePressed(room, x, y, button, camera_x, camera_y) then
@@ -345,4 +370,10 @@ end
 
 function love.mousemoved(_, _, dx, dy)
     camera.mousemoved(dx, dy, room)
+end
+
+function love.wheelmoved(x, y)
+    if not agent_uix.isModalOpen() then
+        deck_hand_vis.wheelmoved(x, y)
+    end
 end

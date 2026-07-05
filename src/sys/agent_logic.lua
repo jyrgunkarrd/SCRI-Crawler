@@ -215,7 +215,7 @@ function agent_logic.selectAgent(agent, tile, room)
     sfx_logic.playAgentSelect(agent)
 end
 
-function agent_logic.update(dt, room, camera_x, camera_y)
+function agent_logic.update(dt, room, camera_x, camera_y, suppress_movement)
     if agent_logic.movement.animation then
         local animation = agent_logic.movement.animation
 
@@ -234,7 +234,11 @@ function agent_logic.update(dt, room, camera_x, camera_y)
         end
     end
 
-    updateMovementPreview(room, camera_x, camera_y)
+    if suppress_movement then
+        agent_logic.movement.preview = nil
+    else
+        updateMovementPreview(room, camera_x, camera_y)
+    end
 end
 
 function agent_logic.handleMousePressed(room, x, y, button, camera_x, camera_y)
