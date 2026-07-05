@@ -62,4 +62,10 @@ function sfx_logic.playAgentSelect(agent)
     sfx_logic.playAgentVoice(agent)
 end
 
+function sfx_logic.playMove()
+    if not sfx_logic.playNamed("move") then
+        sfx_logic.playNamed("movement")
+    end
+end
+
 return sfx_logic

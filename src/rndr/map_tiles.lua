@@ -8,6 +8,7 @@ local CORRIDOR_COLOR = { 0.27, 0.39, 0.35, 1 }
 local AGENT_PORTRAIT_DIR = "assets/images/agents"
 local PORTRAIT_RADIUS = HEX_SIZE * 0.78
 local PORTRAIT_OUTLINE_COLOR = { 0.015, 0.012, 0.01, 1 }
+local EXHAUSTED_PORTRAIT_COLOR = { 0.34, 0.34, 0.34, 0.72 }
 local SELECTED_PULSE_SPEED = 3.6
 local SELECTED_PULSE_AMOUNT = 0.075
 local SHOUT_BOX_COLOR = { 1, 1, 1, 0.96 }
@@ -15,6 +16,7 @@ local SHOUT_TEXT_COLOR = { 0, 0, 0, 1 }
 local SHOUT_BOX_H = 34
 local SHOUT_BOX_PAD_X = 10
 local SHOUT_BOX_PAD_Y = 4
+local MOVE_EASE_OVERSHOOT = 1.04
 local agent_portraits = {}
 local missing_agent_portraits = {}
 
@@ -94,6 +96,14 @@ function map_tiles.getAgentPortrait(agent)
     return getAgentPortrait(agent)
 end
 
+local function getAgentCurrentAp(agent)
+    if not agent or not agent.runtime_stats or not agent.runtime_stats.ap then
+        return nil
+    end
+
+    return agent.runtime_stats.ap.current
+end
+
 local function drawPortraitTile(tile, center_x, center_y, selected)
     if not tile.agent then
         return
@@ -120,6 +130,46 @@ local function drawPortraitTile(tile, center_x, center_y, selected)
     end, "replace", 1)
 
     love.graphics.setStencilTest("equal", 1)
+
+    if getAgentCurrentAp(tile.agent) == 0 then
+        love.graphics.setColor(EXHAUSTED_PORTRAIT_COLOR)
+    else
+        love.graphics.setColor(1, 1, 1, 1)
+    end
+
+    love.graphics.draw(
+        image,
+        center_x,
+        center_y,
+        0,
+        scale,
+        scale,
+        image:getWidth() / 2,
+        image:getHeight() / 2
+    )
+    love.graphics.setStencilTest()
+
+    love.graphics.setColor(PORTRAIT_OUTLINE_COLOR)
+    love.graphics.setLineWidth(3)
+    love.graphics.polygon("line", points)
+    love.graphics.setLineWidth(1)
+end
+
+local function drawMovingPortrait(agent, center_x, center_y)
+    local image = getAgentPortrait(agent)
+
+    if not image then
+        return
+    end
+
+    local points = buildHexPoints(center_x, center_y, PORTRAIT_RADIUS)
+    local scale = (PORTRAIT_RADIUS * 2) / math.min(image:getWidth(), image:getHeight())
+
+    love.graphics.stencil(function()
+        love.graphics.polygon("fill", points)
+    end, "replace", 1)
+
+    love.graphics.setStencilTest("equal", 1)
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.draw(
         image,
@@ -137,6 +187,13 @@ local function drawPortraitTile(tile, center_x, center_y, selected)
     love.graphics.setLineWidth(3)
     love.graphics.polygon("line", points)
     love.graphics.setLineWidth(1)
+end
+
+local function easeOutBack(t)
+    local overshoot = MOVE_EASE_OVERSHOOT
+    local shifted = t - 1
+
+    return 1 + shifted * shifted * ((overshoot + 1) * shifted + overshoot)
 end
 
 function map_tiles.axialToPixel(q, r)
@@ -188,7 +245,7 @@ function map_tiles.drawBase(room, camera_x, camera_y)
     love.graphics.setColor(1, 1, 1, 1)
 end
 
-function map_tiles.drawPortraits(room, camera_x, camera_y, selected_tile)
+function map_tiles.drawPortraits(room, camera_x, camera_y, selected_tile, moving_agent)
     if not room or not room.tiles then
         return
     end
@@ -198,9 +255,28 @@ function map_tiles.drawPortraits(room, camera_x, camera_y, selected_tile)
     for _, tile in ipairs(room.tiles) do
         local x, y = axialToPixel(tile.q, tile.r)
 
-        drawPortraitTile(tile, x + offset_x, y + offset_y, tile == selected_tile)
+        if tile.agent ~= moving_agent then
+            drawPortraitTile(tile, x + offset_x, y + offset_y, tile == selected_tile)
+        end
     end
 
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
+function map_tiles.drawMovingAgent(room, camera_x, camera_y, animation)
+    if not room or not animation or not animation.agent or not animation.from or not animation.to then
+        return
+    end
+
+    local offset_x, offset_y = getDrawOffset(room, camera_x, camera_y)
+    local from_x, from_y = axialToPixel(animation.from.q, animation.from.r)
+    local to_x, to_y = axialToPixel(animation.to.q, animation.to.r)
+    local progress = math.min(animation.elapsed / animation.duration, 1)
+    local eased = easeOutBack(progress)
+    local x = from_x + (to_x - from_x) * eased + offset_x
+    local y = from_y + (to_y - from_y) * eased + offset_y
+
+    drawMovingPortrait(animation.agent, x, y)
     love.graphics.setColor(1, 1, 1, 1)
 end
 

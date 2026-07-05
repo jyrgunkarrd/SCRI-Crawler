@@ -82,18 +82,29 @@ local function drawPortrait(agent)
     love.graphics.setLineWidth(1)
 end
 
-local function drawStatValue(label, stat, color, index)
+local function drawStatValue(label, stat, color, index, pending_cost)
     local current = math.floor(tonumber(stat and stat.current) or 0)
     local maximum = math.floor(tonumber(stat and stat.maximum) or 0)
 
     local y = STAT_Y + (index - 1) * STAT_ROW_H
     local value_text = ("%d / %d"):format(current, maximum)
+    local font = love.graphics.getFont()
+    local value_w = font:getWidth(value_text)
+    local value_x = STAT_X + CONTENT_W - value_w
 
     love.graphics.setColor(TEXT_COLOR)
     love.graphics.print(label, STAT_X, y)
 
+    if pending_cost and pending_cost > 0 then
+        local cost_text = "-" .. tostring(pending_cost)
+        local cost_w = font:getWidth(cost_text)
+
+        love.graphics.setColor(color)
+        love.graphics.print(cost_text, value_x - cost_w - 14, y)
+    end
+
     love.graphics.setColor(color)
-    love.graphics.printf(value_text, STAT_X + 58, y, CONTENT_W - 58, "right")
+    love.graphics.print(value_text, value_x, y)
 end
 
 function agent_uix.draw()
@@ -104,6 +115,8 @@ function agent_uix.draw()
     end
 
     local stats = agent_logic.getSelectedStats()
+    local preview = agent_logic.getMovementPreview()
+    local pending_ap_cost = preview and preview.cost or nil
 
     love.graphics.setColor(PANEL_COLOR)
     love.graphics.rectangle("fill", PANEL_X, PANEL_Y, PANEL_W, PANEL_H)
@@ -114,7 +127,7 @@ function agent_uix.draw()
     love.graphics.print(agent.name or agent.id or "Agent", CONTENT_X, CONTENT_Y)
 
     for index, stat in ipairs(STAT_ORDER) do
-        drawStatValue(stat.label, stats[stat.id], STAT_COLORS[stat.id], index)
+        drawStatValue(stat.label, stats[stat.id], STAT_COLORS[stat.id], index, stat.id == "ap" and pending_ap_cost or nil)
     end
 
     love.graphics.setColor(1, 1, 1, 1)

@@ -185,6 +185,7 @@ local function populatePlayerAgents(target_room)
         if not agent then
             print("Unknown agent id in dev squad: " .. tostring(agent_id))
         else
+            agent_logic.ensureRuntimeStats(agent)
             tile.agent = agent
         end
     end
@@ -288,15 +289,28 @@ end
 
 function love.update(dt)
     camera.update(dt, room)
-    agent_logic.update(dt)
+    local camera_x, camera_y = camera.getOffset()
+
+    agent_logic.update(dt, room, camera_x, camera_y)
 end
 
 function love.draw()
     local camera_x, camera_y = camera.getOffset()
 
     map_tiles.drawBase(room, camera_x, camera_y)
+    overlays.drawMovementRange(room, camera_x, camera_y, agent_logic.getMovementRange())
     overlays.drawHover(room, camera_x, camera_y)
-    map_tiles.drawPortraits(room, camera_x, camera_y, agent_logic.getSelectedTile())
+    local movement_animation = agent_logic.getMovementAnimation()
+
+    map_tiles.drawPortraits(
+        room,
+        camera_x,
+        camera_y,
+        agent_logic.getSelectedTile(),
+        movement_animation and movement_animation.agent or nil
+    )
+    map_tiles.drawMovingAgent(room, camera_x, camera_y, movement_animation)
+    overlays.drawMovementPreview(room, camera_x, camera_y, agent_logic.getMovementPreview(), agent_logic.getSelectedAgent())
     map_tiles.drawSelectionShout(room, camera_x, camera_y, agent_logic.getSelectedTile(), agent_logic.getSelectionShout())
     overlays.drawDoors(room, camera_x, camera_y)
     overlays.drawExitMarkers(room, camera_x, camera_y)
@@ -310,6 +324,10 @@ function love.keypressed(key)
         room = loadMapFile()
         agent_logic.clearSelection()
         camera.reset()
+    elseif key == "," then
+        agent_logic.selectAdjacentAgent(room, -1)
+    elseif key == "." then
+        agent_logic.selectAdjacentAgent(room, 1)
     end
 end
 

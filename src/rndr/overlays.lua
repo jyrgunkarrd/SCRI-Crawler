@@ -8,6 +8,14 @@ local EXIT_MARKER_RADIUS = 13
 local DOOR_FILL_COLOR = { 1, 1, 1, 1 }
 local DOOR_OUTLINE_COLOR = { 0.025, 0.02, 0.018, 1 }
 local DOOR_RADIUS = 14
+local MOVE_COLOR = { 0.8431, 0.9098, 0.0039, 1 }
+local MOVE_PULSE_SPEED = 3.2
+local MOVE_ALPHA_BASE = 0.12
+local MOVE_ALPHA_PULSE = 0.08
+local GHOST_ALPHA = 0.48
+local GHOST_RADIUS = 42
+local COST_BOX_PAD_X = 8
+local COST_BOX_PAD_Y = 5
 
 local function getDrawOffset(room, camera_x, camera_y)
     local offset_x, offset_y = map_tiles.getCenteredOffset(room)
@@ -118,6 +126,109 @@ function overlays.drawHover(room, camera_x, camera_y)
 
     love.graphics.setColor(HOVER_COLOR)
     love.graphics.polygon("fill", points)
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
+function overlays.drawMovementRange(room, camera_x, camera_y, movement_range)
+    if not room or not movement_range then
+        return
+    end
+
+    local offset_x, offset_y = getDrawOffset(room, camera_x, camera_y)
+    local pulse = (math.sin(love.timer.getTime() * MOVE_PULSE_SPEED) + 1) / 2
+
+    love.graphics.setColor(MOVE_COLOR[1], MOVE_COLOR[2], MOVE_COLOR[3], MOVE_ALPHA_BASE + MOVE_ALPHA_PULSE * pulse)
+
+    for _, entry in pairs(movement_range) do
+        local x, y = map_tiles.axialToPixel(entry.tile.q, entry.tile.r)
+
+        love.graphics.polygon("fill", map_tiles.buildHexPoints(x + offset_x, y + offset_y))
+    end
+
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
+local function drawGhostPortrait(agent, center_x, center_y)
+    local image = map_tiles.getAgentPortrait(agent)
+
+    if not image then
+        return
+    end
+
+    local points = map_tiles.buildHexPoints(center_x, center_y, GHOST_RADIUS)
+    local scale = (GHOST_RADIUS * 2) / math.min(image:getWidth(), image:getHeight())
+
+    love.graphics.stencil(function()
+        love.graphics.polygon("fill", points)
+    end, "replace", 1)
+
+    love.graphics.setStencilTest("equal", 1)
+    love.graphics.setColor(1, 1, 1, GHOST_ALPHA)
+    love.graphics.draw(
+        image,
+        center_x,
+        center_y,
+        0,
+        scale,
+        scale,
+        image:getWidth() / 2,
+        image:getHeight() / 2
+    )
+    love.graphics.setStencilTest()
+
+    love.graphics.setColor(0, 0, 0, 0.72)
+    love.graphics.setLineWidth(3)
+    love.graphics.polygon("line", points)
+    love.graphics.setLineWidth(1)
+end
+
+local function drawMovementCost(cost, center_x, center_y)
+    local text = tostring(cost)
+    local font = love.graphics.getFont()
+    local text_w = font:getWidth(text)
+    local text_h = font:getHeight()
+    local box_w = text_w + COST_BOX_PAD_X * 2
+    local box_h = text_h + COST_BOX_PAD_Y * 2
+    local box_x = center_x - box_w / 2
+    local box_y = center_y + GHOST_RADIUS * 0.36
+
+    love.graphics.setColor(0, 0, 0, 0.9)
+    love.graphics.rectangle("fill", box_x, box_y, box_w, box_h)
+    love.graphics.setColor(MOVE_COLOR)
+    love.graphics.print(text, box_x + COST_BOX_PAD_X, box_y + COST_BOX_PAD_Y - 1)
+end
+
+function overlays.drawMovementPreview(room, camera_x, camera_y, preview, agent)
+    if not room or not preview or not preview.tile or not agent then
+        return
+    end
+
+    local offset_x, offset_y = getDrawOffset(room, camera_x, camera_y)
+    local path_points = {}
+
+    for _, tile in ipairs(preview.path or {}) do
+        local x, y = map_tiles.axialToPixel(tile.q, tile.r)
+
+        path_points[#path_points + 1] = x + offset_x
+        path_points[#path_points + 1] = y + offset_y
+    end
+
+    if #path_points >= 4 then
+        love.graphics.setColor(0, 0, 0, 0.78)
+        love.graphics.setLineWidth(7)
+        love.graphics.line(path_points)
+        love.graphics.setColor(MOVE_COLOR)
+        love.graphics.setLineWidth(3)
+        love.graphics.line(path_points)
+        love.graphics.setLineWidth(1)
+    end
+
+    local ghost_x, ghost_y = map_tiles.axialToPixel(preview.tile.q, preview.tile.r)
+    ghost_x = ghost_x + offset_x
+    ghost_y = ghost_y + offset_y
+
+    drawGhostPortrait(agent, ghost_x, ghost_y)
+    drawMovementCost(preview.cost, ghost_x, ghost_y)
     love.graphics.setColor(1, 1, 1, 1)
 end
 

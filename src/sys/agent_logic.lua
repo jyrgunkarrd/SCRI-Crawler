@@ -1,15 +1,22 @@
 local map_tiles = require("src.rndr.map_tiles")
+local pathfinding = require("src.sys.pathfinding")
 local sfx_logic = require("src.sys.sfx_logic")
 
 local agent_logic = {
     selected_tile = nil,
     selected_agent = nil,
     shout = nil,
+    movement = {
+        range = {},
+        preview = nil,
+        animation = nil,
+    },
 }
 
 local SHOUT_CHARS_PER_SECOND = 58
 local SHOUT_MIN_TYPE_SECONDS = 0.08
 local SHOUT_HOLD_SECONDS = 0.65
+local MOVE_ANIMATION_SECONDS = 0.18
 
 local function pointInPolygon(x, y, points)
     local inside = false
@@ -98,13 +105,101 @@ local function getRuntimeStat(agent, stat_name)
     return agent.runtime_stats[stat_name]
 end
 
+local function isOccupiedDestination(tile, selected_tile)
+    return tile.agent and tile ~= selected_tile
+end
+
+local function getCurrentAp(agent)
+    return getRuntimeStat(agent, "ap").current
+end
+
+local function refreshMovementRange(room)
+    agent_logic.movement.range = {}
+    agent_logic.movement.preview = nil
+
+    if not room or not agent_logic.selected_agent or not agent_logic.selected_tile then
+        return
+    end
+
+    local current_ap = math.max(0, math.floor(getCurrentAp(agent_logic.selected_agent)))
+    local reachable = pathfinding.findReachable(room, agent_logic.selected_tile, current_ap)
+    local selected_key = pathfinding.tileKey(agent_logic.selected_tile)
+
+    for key, entry in pairs(reachable) do
+        if key ~= selected_key and not isOccupiedDestination(entry.tile, agent_logic.selected_tile) then
+            agent_logic.movement.range[key] = entry
+        end
+    end
+end
+
+local function updateMovementPreview(room, camera_x, camera_y)
+    agent_logic.movement.preview = nil
+
+    if not room or not agent_logic.selected_agent or not agent_logic.selected_tile or agent_logic.movement.animation then
+        return
+    end
+
+    local mouse_x, mouse_y = love.mouse.getPosition()
+    local hovered_tile = getTileAtPoint(room, mouse_x, mouse_y, camera_x, camera_y)
+
+    if not hovered_tile then
+        return
+    end
+
+    local range_entry = agent_logic.movement.range[pathfinding.tileKey(hovered_tile)]
+
+    if not range_entry then
+        return
+    end
+
+    local path = pathfinding.findPath(room, agent_logic.selected_tile, hovered_tile)
+
+    if not path then
+        return
+    end
+
+    agent_logic.movement.preview = {
+        tile = hovered_tile,
+        path = path,
+        cost = range_entry.cost,
+    }
+end
+
+local function tileSort(a, b)
+    if a.tile.r == b.tile.r then
+        return a.tile.q < b.tile.q
+    end
+
+    return a.tile.r < b.tile.r
+end
+
+local function getActiveAgentTiles(room)
+    local agent_tiles = {}
+
+    for _, tile in ipairs(room.tiles or {}) do
+        if tile.agent and getCurrentAp(tile.agent) > 0 then
+            agent_tiles[#agent_tiles + 1] = {
+                agent = tile.agent,
+                tile = tile,
+            }
+        end
+    end
+
+    table.sort(agent_tiles, tileSort)
+
+    return agent_tiles
+end
+
 function agent_logic.clearSelection()
     agent_logic.selected_tile = nil
     agent_logic.selected_agent = nil
     agent_logic.shout = nil
+    agent_logic.movement.range = {}
+    agent_logic.movement.preview = nil
+    agent_logic.movement.animation = nil
 end
 
-function agent_logic.selectAgent(agent, tile)
+function agent_logic.selectAgent(agent, tile, room)
     local shout_text = agent.shout_select or ""
     local type_seconds = math.max(#shout_text / SHOUT_CHARS_PER_SECOND, SHOUT_MIN_TYPE_SECONDS)
 
@@ -116,22 +211,64 @@ function agent_logic.selectAgent(agent, tile)
         type_seconds = type_seconds,
         duration = type_seconds + SHOUT_HOLD_SECONDS,
     }
+    refreshMovementRange(room)
     sfx_logic.playAgentSelect(agent)
 end
 
-function agent_logic.update(dt)
-    if not agent_logic.shout then
-        return
+function agent_logic.update(dt, room, camera_x, camera_y)
+    if agent_logic.movement.animation then
+        local animation = agent_logic.movement.animation
+
+        animation.elapsed = animation.elapsed + dt
+
+        if animation.elapsed >= animation.duration then
+            agent_logic.movement.animation = nil
+        end
     end
 
-    agent_logic.shout.elapsed = agent_logic.shout.elapsed + dt
+    if agent_logic.shout then
+        agent_logic.shout.elapsed = agent_logic.shout.elapsed + dt
 
-    if agent_logic.shout.elapsed >= agent_logic.shout.duration then
-        agent_logic.shout = nil
+        if agent_logic.shout.elapsed >= agent_logic.shout.duration then
+            agent_logic.shout = nil
+        end
     end
+
+    updateMovementPreview(room, camera_x, camera_y)
 end
 
 function agent_logic.handleMousePressed(room, x, y, button, camera_x, camera_y)
+    if button == 2 then
+        local preview = agent_logic.movement.preview
+
+        if preview and agent_logic.selected_agent and agent_logic.selected_tile and not agent_logic.movement.animation then
+            local ap = getRuntimeStat(agent_logic.selected_agent, "ap")
+
+            if preview.cost <= ap.current then
+                local from_tile = agent_logic.selected_tile
+
+                agent_logic.movement.animation = {
+                    agent = agent_logic.selected_agent,
+                    from = { q = from_tile.q, r = from_tile.r },
+                    to = { q = preview.tile.q, r = preview.tile.r },
+                    elapsed = 0,
+                    duration = MOVE_ANIMATION_SECONDS,
+                }
+
+                agent_logic.selected_tile.agent = nil
+                preview.tile.agent = agent_logic.selected_agent
+                agent_logic.selected_tile = preview.tile
+                ap.current = math.max(0, ap.current - preview.cost)
+                refreshMovementRange(room)
+                updateMovementPreview(room, camera_x, camera_y)
+                sfx_logic.playMove()
+                return true
+            end
+        end
+
+        return false
+    end
+
     if button ~= 1 then
         return false
     end
@@ -139,10 +276,39 @@ function agent_logic.handleMousePressed(room, x, y, button, camera_x, camera_y)
     local tile = getTileAtPoint(room, x, y, camera_x, camera_y)
 
     if tile and tile.agent then
-        agent_logic.selectAgent(tile.agent, tile)
+        agent_logic.selectAgent(tile.agent, tile, room)
     else
         agent_logic.clearSelection()
     end
+
+    return true
+end
+
+function agent_logic.selectAdjacentAgent(room, direction)
+    local agent_tiles = getActiveAgentTiles(room)
+
+    if #agent_tiles == 0 then
+        agent_logic.clearSelection()
+        return false
+    end
+
+    local current_index = nil
+
+    for index, entry in ipairs(agent_tiles) do
+        if entry.tile == agent_logic.selected_tile then
+            current_index = index
+            break
+        end
+    end
+
+    if not current_index then
+        current_index = direction > 0 and 0 or 1
+    end
+
+    local next_index = ((current_index - 1 + direction) % #agent_tiles) + 1
+    local next_entry = agent_tiles[next_index]
+
+    agent_logic.selectAgent(next_entry.agent, next_entry.tile, room)
 
     return true
 end
@@ -171,6 +337,18 @@ function agent_logic.getSelectionShout()
     }
 end
 
+function agent_logic.getMovementRange()
+    return agent_logic.movement.range
+end
+
+function agent_logic.getMovementPreview()
+    return agent_logic.movement.preview
+end
+
+function agent_logic.getMovementAnimation()
+    return agent_logic.movement.animation
+end
+
 function agent_logic.getSelectedStats()
     local agent = agent_logic.getSelectedAgent()
 
@@ -179,6 +357,12 @@ function agent_logic.getSelectedStats()
         hp = getRuntimeStat(agent, "hp"),
         lp = getRuntimeStat(agent, "lp"),
     }
+end
+
+function agent_logic.ensureRuntimeStats(agent)
+    getRuntimeStat(agent, "ap")
+    getRuntimeStat(agent, "hp")
+    getRuntimeStat(agent, "lp")
 end
 
 return agent_logic
