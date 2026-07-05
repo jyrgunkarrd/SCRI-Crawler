@@ -30,6 +30,11 @@ local agents = {
             {lex = 1}, 
         },
         fate = "BSCSTACK",
+        actions = {
+
+            "BSCDECK",
+
+        },
         shout_select = "As a river bends.",
 
     },
@@ -60,6 +65,11 @@ local agents = {
             {lex = 1}, 
         },
         fate = "BSCSTACK",
+        actions = {
+
+            "BSCDECK",
+
+        },
         shout_select = "I see them.",
 
     },
@@ -91,6 +101,11 @@ local agents = {
             {lex = 1}, 
         },
         fate = "BSCSTACK",
+        actions = {
+
+            "BSCDECK",
+
+        },
         shout_select = "We're ready.",
 
     },
@@ -122,6 +137,11 @@ local agents = {
             {lex = 7}, 
         },
         fate = "BSCSTACK",
+        actions = {
+
+            "BSCDECK",
+
+        },
         shout_select = "Say the word.",
 
     },
@@ -153,6 +173,11 @@ local agents = {
             {lex = 1}, 
         },
         fate = "BSCSTACK",
+        actions = {
+
+            "BSCDECK",
+
+        },
         shout_select = "MUNCH HUNGRY!",
 
     },
@@ -184,6 +209,11 @@ local agents = {
             {lex = 0}, 
         },
         fate = "BSCSTACK",
+        actions = {
+
+            "BSCDECK",
+
+        },
         shout_select = "They're dead already.",
 
     },
@@ -214,6 +244,11 @@ local agents = {
             {lex = 1}, 
         },
         fate = "BSCSTACK",
+        actions = {
+
+            "BSCDECK",
+
+        },
         shout_select = "Good news?",
 
     },

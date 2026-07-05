@@ -33,6 +33,8 @@ local FATE_POS_COLOR = { 0.9765, 0.6314, 0, 1 }
 local FATE_BAD_COLOR = { 1, 0.2784, 0.2706, 1 }
 local FATE_CRIT_COLOR = { 1, 0.1686, 0.9922, 1 }
 local AGENT_IMAGE_DIR = "assets/images/agents"
+local ENEMY_IMAGE_DIR = "assets/images/enemy"
+local ENEMY_OUTLINE_COLOR = { 0.6118, 0, 0.0431, 1 }
 local MODAL_GAP = 18
 local MODAL_H = 560
 local MODAL_IMAGE_W = MODAL_H
@@ -59,16 +61,22 @@ local FATE_FONT_SIZE = 16
 local full_images = {}
 local missing_full_images = {}
 local fate_font
-local modal_agent = nil
+local modal_unit = nil
+local modal_kind = nil
 local STAT_COLORS = {
     ap = { 0.8431, 0.9098, 0.0039, 1 },
     hp = { 1, 0.2902, 0.4941, 1 },
     lp = { 0.6745, 0.9725, 0.9882, 1 },
+    atk = { 0.9961, 0.3373, 0.1765, 1 },
 }
-local STAT_ORDER = {
+local AGENT_STAT_ORDER = {
     { id = "ap", label = "AP" },
     { id = "hp", label = "HP" },
     { id = "lp", label = "LP" },
+}
+local ENEMY_STAT_ORDER = {
+    { id = "hp", label = "HP" },
+    { id = "atk", label = "ATK" },
 }
 
 local function pointInRect(x, y, rect_x, rect_y, rect_w, rect_h)
@@ -97,22 +105,46 @@ local function getModalLayout()
     }
 end
 
-local function getFullImage(agent)
-    if not agent or not agent.id then
+local function getEnemyModalLayout()
+    local total_w = MODAL_IMAGE_W + MODAL_GAP + MODAL_DECK_W
+    local x = (love.graphics.getWidth() - total_w) / 2
+    local y = (love.graphics.getHeight() - MODAL_H) / 2 + (MODAL_TITLE_H + MODAL_TITLE_GAP) / 2
+
+    return {
+        image_x = x,
+        image_y = y,
+        image_w = MODAL_IMAGE_W,
+        image_h = MODAL_H,
+        deck_x = x + MODAL_IMAGE_W + MODAL_GAP,
+        deck_y = y,
+        deck_w = MODAL_DECK_W,
+        deck_h = MODAL_H,
+    }
+end
+
+local function getImageDir(kind)
+    return kind == "enemy" and ENEMY_IMAGE_DIR or AGENT_IMAGE_DIR
+end
+
+local function getFullImage(unit, kind)
+    if not unit or not unit.id then
         return nil
     end
 
-    if full_images[agent.id] then
-        return full_images[agent.id]
+    local cache_key = (kind or "agent") .. ":" .. unit.id
+
+    if full_images[cache_key] then
+        return full_images[cache_key]
     end
 
-    if missing_full_images[agent.id] then
+    if missing_full_images[cache_key] then
         return nil
     end
 
+    local image_dir = getImageDir(kind)
     local paths = {
-        ("%s/%s-full.webp"):format(AGENT_IMAGE_DIR, agent.id),
-        ("%s/%sfull.webp"):format(AGENT_IMAGE_DIR, agent.id),
+        ("%s/%s-full.webp"):format(image_dir, unit.id),
+        ("%s/%sfull.webp"):format(image_dir, unit.id),
     }
 
     for _, path in ipairs(paths) do
@@ -120,15 +152,15 @@ local function getFullImage(agent)
             local ok, image = pcall(image_loader.newImage, path)
 
             if ok then
-                full_images[agent.id] = image
+                full_images[cache_key] = image
                 return image
             end
 
-            print("Unable to load full agent image '" .. path .. "': " .. tostring(image))
+            print("Unable to load full " .. tostring(kind or "agent") .. " image '" .. path .. "': " .. tostring(image))
         end
     end
 
-    missing_full_images[agent.id] = true
+    missing_full_images[cache_key] = true
 
     return nil
 end
@@ -145,11 +177,12 @@ local function buildHexPoints(center_x, center_y, radius)
     return points
 end
 
-local function drawPortrait(agent)
-    local image = map_tiles.getAgentPortrait(agent)
+local function drawPortrait(unit, kind)
+    local image = kind == "enemy" and map_tiles.getEnemyPortrait(unit) or map_tiles.getAgentPortrait(unit)
     local center_x = PORTRAIT_BOX_X + PORTRAIT_BOX_SIZE / 2
     local center_y = PORTRAIT_BOX_Y + PORTRAIT_BOX_SIZE / 2
     local points = buildHexPoints(center_x, center_y, PORTRAIT_RADIUS)
+    local outline_color = kind == "enemy" and ENEMY_OUTLINE_COLOR or OUTLINE_COLOR
 
     love.graphics.setColor(0.035, 0.032, 0.028, 1)
     love.graphics.rectangle("fill", PORTRAIT_BOX_X, PORTRAIT_BOX_Y, PORTRAIT_BOX_SIZE, PORTRAIT_BOX_SIZE)
@@ -176,7 +209,7 @@ local function drawPortrait(agent)
         love.graphics.setStencilTest()
     end
 
-    love.graphics.setColor(OUTLINE_COLOR)
+    love.graphics.setColor(outline_color)
     love.graphics.setLineWidth(3)
     love.graphics.polygon("line", points)
     love.graphics.setLineWidth(1)
@@ -187,7 +220,7 @@ local function drawStatValue(label, stat, color, index, pending_cost)
     local maximum = math.floor(tonumber(stat and stat.maximum) or 0)
 
     local y = STAT_Y + (index - 1) * STAT_ROW_H
-    local value_text = ("%d / %d"):format(current, maximum)
+    local value_text = label == "ATK" and tostring(current) or ("%d / %d"):format(current, maximum)
     local font = love.graphics.getFont()
     local value_w = font:getWidth(value_text)
     local value_x = STAT_X + CONTENT_W - value_w
@@ -219,14 +252,15 @@ local function getFateValueColor(entry)
     return FATE_POS_COLOR
 end
 
-local function drawFullImageWindow(agent, layout)
-    local image = getFullImage(agent)
-    local title_w = math.min(layout.image_w, math.max(180, love.graphics.getFont():getWidth(agent.name or agent.id or "Agent") + 28))
+local function drawFullImageWindow(unit, kind, layout)
+    local image = getFullImage(unit, kind)
+    local fallback_label = kind == "enemy" and "Enemy" or "Agent"
+    local title_w = math.min(layout.image_w, math.max(180, love.graphics.getFont():getWidth(unit.name or unit.id or fallback_label) + 28))
     local title_x = layout.image_x + (layout.image_w - title_w) / 2
     local title_y = layout.image_y - MODAL_TITLE_H - MODAL_TITLE_GAP
 
     love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.printf(agent.name or agent.id or "Agent", title_x + 6, title_y + 5, title_w - 12, "center")
+    love.graphics.printf(unit.name or unit.id or fallback_label, title_x + 6, title_y + 5, title_w - 12, "center")
 
     love.graphics.setColor(MODAL_FILL_COLOR)
     love.graphics.rectangle("fill", layout.image_x, layout.image_y, layout.image_w, layout.image_h)
@@ -322,8 +356,8 @@ local function drawSlotWindow(agent, layout)
     end
 end
 
-local function drawFateDeckWindow(agent, layout)
-    local deck = fate_logic.getAgentDeck(agent)
+local function drawFateDeckWindow(unit, layout)
+    local deck = fate_logic.getAgentDeck(unit)
     local section_h = (layout.deck_h - FATE_SECTION_GAP) / 2
     local deck_section_x = layout.deck_x
     local deck_section_y = layout.deck_y
@@ -369,42 +403,48 @@ local function drawFateDeckWindow(agent, layout)
 end
 
 local function drawFateModal()
-    if not modal_agent then
+    if not modal_unit then
         return
     end
 
-    local layout = getModalLayout()
+    local layout = modal_kind == "enemy" and getEnemyModalLayout() or getModalLayout()
 
     love.graphics.setColor(MODAL_BACKDROP_COLOR)
     love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
 
-    drawFullImageWindow(modal_agent, layout)
-    drawSlotWindow(modal_agent, layout)
-    drawFateDeckWindow(modal_agent, layout)
+    drawFullImageWindow(modal_unit, modal_kind, layout)
+
+    if modal_kind ~= "enemy" then
+        drawSlotWindow(modal_unit, layout)
+    end
+
+    drawFateDeckWindow(modal_unit, layout)
 
     love.graphics.setColor(1, 1, 1, 1)
 end
 
 function agent_uix.draw()
-    local agent = agent_logic.getSelectedAgent()
+    local unit, kind = agent_logic.getSelectedUnit()
 
-    if not agent then
+    if not unit then
         return
     end
 
     local stats = agent_logic.getSelectedStats()
     local preview = agent_logic.getMovementPreview()
-    local pending_ap_cost = preview and preview.cost or nil
+    local pending_ap_cost = kind == "agent" and preview and preview.cost or nil
+    local stat_order = kind == "enemy" and ENEMY_STAT_ORDER or AGENT_STAT_ORDER
+    local fallback_label = kind == "enemy" and "Enemy" or "Agent"
 
     love.graphics.setColor(PANEL_COLOR)
     love.graphics.rectangle("fill", PANEL_X, PANEL_Y, PANEL_W, PANEL_H)
 
-    drawPortrait(agent)
+    drawPortrait(unit, kind)
 
     love.graphics.setColor(TEXT_COLOR)
-    love.graphics.print(agent.name or agent.id or "Agent", CONTENT_X, CONTENT_Y)
+    love.graphics.print(unit.name or unit.id or fallback_label, CONTENT_X, CONTENT_Y)
 
-    for index, stat in ipairs(STAT_ORDER) do
+    for index, stat in ipairs(stat_order) do
         drawStatValue(stat.label, stats[stat.id], STAT_COLORS[stat.id], index, stat.id == "ap" and pending_ap_cost or nil)
     end
 
@@ -418,23 +458,25 @@ function agent_uix.mousepressed(x, y, button)
         return false
     end
 
-    if modal_agent then
-        local layout = getModalLayout()
+    if modal_unit then
+        local layout = modal_kind == "enemy" and getEnemyModalLayout() or getModalLayout()
         local in_image = pointInRect(x, y, layout.image_x, layout.image_y, layout.image_w, layout.image_h)
-        local in_slot = pointInRect(x, y, layout.slot_x, layout.slot_y, layout.slot_w, layout.slot_h)
+        local in_slot = layout.slot_x and pointInRect(x, y, layout.slot_x, layout.slot_y, layout.slot_w, layout.slot_h)
         local in_deck = pointInRect(x, y, layout.deck_x, layout.deck_y, layout.deck_w, layout.deck_h)
 
         if not in_image and not in_slot and not in_deck then
-            modal_agent = nil
+            modal_unit = nil
+            modal_kind = nil
         end
 
         return true
     end
 
-    local agent = agent_logic.getSelectedAgent()
+    local unit, kind = agent_logic.getSelectedUnit()
 
-    if agent and pointInRect(x, y, PORTRAIT_BOX_X, PORTRAIT_BOX_Y, PORTRAIT_BOX_SIZE, PORTRAIT_BOX_SIZE) then
-        modal_agent = agent
+    if unit and pointInRect(x, y, PORTRAIT_BOX_X, PORTRAIT_BOX_Y, PORTRAIT_BOX_SIZE, PORTRAIT_BOX_SIZE) then
+        modal_unit = unit
+        modal_kind = kind
         return true
     end
 
@@ -442,17 +484,18 @@ function agent_uix.mousepressed(x, y, button)
 end
 
 function agent_uix.closeModal()
-    if not modal_agent then
+    if not modal_unit then
         return false
     end
 
-    modal_agent = nil
+    modal_unit = nil
+    modal_kind = nil
 
     return true
 end
 
 function agent_uix.isModalOpen()
-    return modal_agent ~= nil
+    return modal_unit ~= nil
 end
 
 return agent_uix

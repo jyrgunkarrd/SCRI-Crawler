@@ -5,6 +5,7 @@ local sfx_logic = require("src.sys.sfx_logic")
 local agent_logic = {
     selected_tile = nil,
     selected_agent = nil,
+    selected_enemy = nil,
     shout = nil,
     movement = {
         range = {},
@@ -106,11 +107,44 @@ local function getRuntimeStat(agent, stat_name)
 end
 
 local function isOccupiedDestination(tile, selected_tile)
-    return tile.agent and tile ~= selected_tile
+    return tile ~= selected_tile and (tile.agent or tile.enemy)
 end
 
 local function getCurrentAp(agent)
     return getRuntimeStat(agent, "ap").current
+end
+
+local function buildEnemyZoneLookup(room)
+    local zone = {}
+
+    for _, tile in ipairs(room.tiles or {}) do
+        if tile.enemy then
+            for _, neighbor in ipairs(pathfinding.getNeighbors(room, tile)) do
+                zone[pathfinding.tileKey(neighbor)] = true
+            end
+        end
+    end
+
+    return zone
+end
+
+local function buildMovementPassability(room, start_tile)
+    local enemy_zone = buildEnemyZoneLookup(room)
+    local start_key = pathfinding.tileKey(start_tile)
+
+    return function(neighbor, current)
+        if neighbor.enemy then
+            return false
+        end
+
+        local current_key = pathfinding.tileKey(current)
+
+        if current_key ~= start_key and enemy_zone[current_key] then
+            return false
+        end
+
+        return true
+    end
 end
 
 local function refreshMovementRange(room)
@@ -122,7 +156,9 @@ local function refreshMovementRange(room)
     end
 
     local current_ap = math.max(0, math.floor(getCurrentAp(agent_logic.selected_agent)))
-    local reachable = pathfinding.findReachable(room, agent_logic.selected_tile, current_ap)
+    local reachable = pathfinding.findReachable(room, agent_logic.selected_tile, current_ap, {
+        isPassable = buildMovementPassability(room, agent_logic.selected_tile),
+    })
     local selected_key = pathfinding.tileKey(agent_logic.selected_tile)
 
     for key, entry in pairs(reachable) do
@@ -152,7 +188,9 @@ local function updateMovementPreview(room, camera_x, camera_y)
         return
     end
 
-    local path = pathfinding.findPath(room, agent_logic.selected_tile, hovered_tile)
+    local path = pathfinding.findPath(room, agent_logic.selected_tile, hovered_tile, {
+        isPassable = buildMovementPassability(room, agent_logic.selected_tile),
+    })
 
     if not path then
         return
@@ -193,6 +231,7 @@ end
 function agent_logic.clearSelection()
     agent_logic.selected_tile = nil
     agent_logic.selected_agent = nil
+    agent_logic.selected_enemy = nil
     agent_logic.shout = nil
     agent_logic.movement.range = {}
     agent_logic.movement.preview = nil
@@ -204,6 +243,7 @@ function agent_logic.selectAgent(agent, tile, room)
     local type_seconds = math.max(#shout_text / SHOUT_CHARS_PER_SECOND, SHOUT_MIN_TYPE_SECONDS)
 
     agent_logic.selected_agent = agent
+    agent_logic.selected_enemy = nil
     agent_logic.selected_tile = tile
     agent_logic.shout = {
         text = shout_text,
@@ -213,6 +253,15 @@ function agent_logic.selectAgent(agent, tile, room)
     }
     refreshMovementRange(room)
     sfx_logic.playAgentSelect(agent)
+end
+
+function agent_logic.selectEnemy(enemy, tile)
+    agent_logic.selected_agent = nil
+    agent_logic.selected_enemy = enemy
+    agent_logic.selected_tile = tile
+    agent_logic.shout = nil
+    agent_logic.movement.range = {}
+    agent_logic.movement.preview = nil
 end
 
 function agent_logic.update(dt, room, camera_x, camera_y, suppress_movement)
@@ -281,6 +330,8 @@ function agent_logic.handleMousePressed(room, x, y, button, camera_x, camera_y)
 
     if tile and tile.agent then
         agent_logic.selectAgent(tile.agent, tile, room)
+    elseif tile and tile.enemy then
+        agent_logic.selectEnemy(tile.enemy, tile)
     else
         agent_logic.clearSelection()
     end
@@ -321,6 +372,22 @@ function agent_logic.getSelectedAgent()
     return agent_logic.selected_agent
 end
 
+function agent_logic.getSelectedEnemy()
+    return agent_logic.selected_enemy
+end
+
+function agent_logic.getSelectedUnit()
+    if agent_logic.selected_agent then
+        return agent_logic.selected_agent, "agent"
+    end
+
+    if agent_logic.selected_enemy then
+        return agent_logic.selected_enemy, "enemy"
+    end
+
+    return nil, nil
+end
+
 function agent_logic.getSelectedTile()
     return agent_logic.selected_tile
 end
@@ -355,6 +422,14 @@ end
 
 function agent_logic.getSelectedStats()
     local agent = agent_logic.getSelectedAgent()
+    local enemy = agent_logic.getSelectedEnemy()
+
+    if enemy then
+        return {
+            hp = getRuntimeStat(enemy, "hp"),
+            atk = getRuntimeStat(enemy, "atk"),
+        }
+    end
 
     return {
         ap = getRuntimeStat(agent, "ap"),
@@ -367,6 +442,15 @@ function agent_logic.ensureRuntimeStats(agent)
     getRuntimeStat(agent, "ap")
     getRuntimeStat(agent, "hp")
     getRuntimeStat(agent, "lp")
+end
+
+function agent_logic.ensureEnemyRuntimeStats(enemy)
+    getRuntimeStat(enemy, "hp")
+    getRuntimeStat(enemy, "atk")
+end
+
+function agent_logic.refreshMovementRange(room)
+    refreshMovementRange(room)
 end
 
 return agent_logic

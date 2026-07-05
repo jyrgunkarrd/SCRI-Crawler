@@ -9,9 +9,13 @@ local DOOR_FILL_COLOR = { 1, 1, 1, 1 }
 local DOOR_OUTLINE_COLOR = { 0.025, 0.02, 0.018, 1 }
 local DOOR_RADIUS = 14
 local MOVE_COLOR = { 0.8431, 0.9098, 0.0039, 1 }
+local ZOC_COLOR = { 0.6118, 0, 0.0431, 1 }
 local MOVE_PULSE_SPEED = 3.2
-local MOVE_ALPHA_BASE = 0.12
-local MOVE_ALPHA_PULSE = 0.08
+local OVERLAY_BACKING_COLOR = { 0, 0, 0, 0.58 }
+local MOVE_ALPHA_BASE = 0.62
+local MOVE_ALPHA_PULSE = 0.14
+local ZOC_ALPHA_BASE = 0.70
+local ZOC_ALPHA_PULSE = 0.14
 local GHOST_ALPHA = 0.48
 local GHOST_RADIUS = 42
 local COST_BOX_PAD_X = 8
@@ -63,6 +67,49 @@ local function getHoveredTile(room, mouse_x, mouse_y, camera_x, camera_y)
     end
 
     return nil
+end
+
+local function tileKey(tile)
+    return tostring(tile.q) .. "," .. tostring(tile.r)
+end
+
+local function buildTileLookup(room)
+    local lookup = {}
+
+    for _, tile in ipairs(room.tiles or {}) do
+        lookup[tileKey(tile)] = tile
+    end
+
+    return lookup
+end
+
+local function getAdjacentTiles(lookup, tile)
+    local directions = {
+        { q = 1, r = 0 },
+        { q = 1, r = -1 },
+        { q = 0, r = -1 },
+        { q = -1, r = 0 },
+        { q = -1, r = 1 },
+        { q = 0, r = 1 },
+    }
+    local adjacent = {}
+
+    for _, direction in ipairs(directions) do
+        local neighbor = lookup[tostring(tile.q + direction.q) .. "," .. tostring(tile.r + direction.r)]
+
+        if neighbor then
+            adjacent[#adjacent + 1] = neighbor
+        end
+    end
+
+    return adjacent
+end
+
+local function drawStableHighlight(points, color, alpha)
+    love.graphics.setColor(OVERLAY_BACKING_COLOR)
+    love.graphics.polygon("fill", points)
+    love.graphics.setColor(color[1], color[2], color[3], alpha)
+    love.graphics.polygon("fill", points)
 end
 
 function overlays.drawDoors(room, camera_x, camera_y)
@@ -137,12 +184,46 @@ function overlays.drawMovementRange(room, camera_x, camera_y, movement_range)
     local offset_x, offset_y = getDrawOffset(room, camera_x, camera_y)
     local pulse = (math.sin(love.timer.getTime() * MOVE_PULSE_SPEED) + 1) / 2
 
-    love.graphics.setColor(MOVE_COLOR[1], MOVE_COLOR[2], MOVE_COLOR[3], MOVE_ALPHA_BASE + MOVE_ALPHA_PULSE * pulse)
-
     for _, entry in pairs(movement_range) do
         local x, y = map_tiles.axialToPixel(entry.tile.q, entry.tile.r)
 
-        love.graphics.polygon("fill", map_tiles.buildHexPoints(x + offset_x, y + offset_y))
+        drawStableHighlight(
+            map_tiles.buildHexPoints(x + offset_x, y + offset_y),
+            MOVE_COLOR,
+            MOVE_ALPHA_BASE + MOVE_ALPHA_PULSE * pulse
+        )
+    end
+
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
+function overlays.drawEnemyZonesOfControl(room, camera_x, camera_y, movement_range)
+    if not room or not room.tiles or not movement_range or not next(movement_range) then
+        return
+    end
+
+    local offset_x, offset_y = getDrawOffset(room, camera_x, camera_y)
+    local lookup = buildTileLookup(room)
+    local highlighted = {}
+    local pulse = (math.sin(love.timer.getTime() * MOVE_PULSE_SPEED) + 1) / 2
+
+    for _, tile in ipairs(room.tiles) do
+        if tile.enemy then
+            for _, adjacent in ipairs(getAdjacentTiles(lookup, tile)) do
+                local key = tileKey(adjacent)
+
+                if movement_range[key] and not highlighted[key] then
+                    local x, y = map_tiles.axialToPixel(adjacent.q, adjacent.r)
+
+                    drawStableHighlight(
+                        map_tiles.buildHexPoints(x + offset_x, y + offset_y),
+                        ZOC_COLOR,
+                        ZOC_ALPHA_BASE + ZOC_ALPHA_PULSE * pulse
+                    )
+                    highlighted[key] = true
+                end
+            end
+        end
     end
 
     love.graphics.setColor(1, 1, 1, 1)

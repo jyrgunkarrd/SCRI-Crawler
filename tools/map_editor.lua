@@ -14,6 +14,8 @@ local START_FILL_COLOR = { 0.95, 0.82, 0.36, 0.9 }
 local DOOR_FILL_COLOR = { 1, 1, 1, 1 }
 local DOOR_OUTLINE_COLOR = { 0.03, 0.025, 0.02, 1 }
 local DOOR_SELECT_COLOR = { 0.95, 0.82, 0.36, 0.35 }
+local SPAWN_MARKER_FILL_COLOR = { 1, 1, 1, 0.92 }
+local SPAWN_MARKER_TEXT_COLOR = { 0, 0, 0, 1 }
 local DOOR_RADIUS_RATIO = 0.28
 local GRID_COLOR = { 1, 1, 1, 0.08 }
 local TEXT_COLOR = { 0.88, 0.88, 0.82, 1 }
@@ -30,7 +32,7 @@ local state = {
     dragging = false,
     erase_dragging = false,
     pan_dragging = false,
-    message = "R room  C corridor  D doors  S start  ,/. swatch  1-9/0 palette",
+    message = "R room  C corridor  D doors  S start  E spawn  Enter export",
     paint_mode = "room",
     door_selection = nil,
     export_index = 1,
@@ -42,6 +44,7 @@ local state = {
     confirm_target = nil,
     show_tile_labels = false,
     space_down = false,
+    spawn_edit = nil,
 }
 
 local function getSourceRoot()
@@ -280,6 +283,7 @@ local function setTile(q, r, value)
             q = q,
             r = r,
             start = existing and existing.start or nil,
+            spawn_event = existing and existing.spawn_event or nil,
             corridor = state.paint_mode == "corridor" or nil,
             palette = state.palette_id,
             swatch = state.swatch_index,
@@ -312,6 +316,54 @@ local function toggleStartAt(q, r)
     end
 
     markDirty()
+end
+
+local function startSpawnEventEditAt(q, r)
+    local tile = state.tiles[tileKey(q, r)]
+
+    if not tile then
+        state.message = "Spawn events need an existing hex."
+        return
+    end
+
+    cancelConfirmation()
+    state.door_selection = nil
+    state.spawn_edit = {
+        q = q,
+        r = r,
+        text = tile.spawn_event or "",
+        suppress_text = "e",
+    }
+    state.message = ("Spawn event q=%d r=%d: %s"):format(q, r, state.spawn_edit.text)
+end
+
+local function commitSpawnEventEdit()
+    if not state.spawn_edit then
+        return
+    end
+
+    local edit = state.spawn_edit
+    local key = tileKey(edit.q, edit.r)
+    local tile = state.tiles[key]
+
+    if tile then
+        tile.spawn_event = edit.text ~= "" and edit.text or nil
+        state.message = tile.spawn_event
+            and ("Set spawn event %q at q=%d r=%d"):format(tile.spawn_event, edit.q, edit.r)
+            or ("Cleared spawn event at q=%d r=%d"):format(edit.q, edit.r)
+        markDirty()
+    else
+        state.message = "Spawn event target no longer exists."
+    end
+
+    state.spawn_edit = nil
+end
+
+local function cancelSpawnEventEdit()
+    if state.spawn_edit then
+        state.spawn_edit = nil
+        state.message = "Spawn event edit cancelled."
+    end
 end
 
 local function applyBrush(x, y, value)
@@ -467,6 +519,10 @@ local function serializeMap(file_name)
             fields[#fields + 1] = "corridor = true"
         end
 
+        if tile.spawn_event then
+            fields[#fields + 1] = ("spawn_event = %q"):format(tile.spawn_event)
+        end
+
         if tile.palette then
             fields[#fields + 1] = ("palette = %d"):format(tile.palette)
         end
@@ -512,7 +568,7 @@ local function exportMap()
     local path, file_name = getExportPath()
 
     if state.dirty and state.active_file_name then
-        local message = ("Unsaved changes. Press E again to overwrite %s."):format(file_name)
+        local message = ("Unsaved changes. Press Enter again to overwrite %s."):format(file_name)
 
         if not requestConfirmation("export", file_name, message) then
             return
@@ -615,6 +671,7 @@ local function loadMapFile(index)
             r = tile.r,
             start = tile.start or nil,
             corridor = tile.corridor or nil,
+            spawn_event = tile.spawn_event,
             palette = tile.palette,
             swatch = tile.swatch,
             color = tile.color and copyColor(tile.color) or nil,
@@ -668,6 +725,18 @@ local function drawTiles()
             love.graphics.setLineWidth(3)
             love.graphics.polygon("line", buildHexPoints(x, y, HEX_SIZE * 0.42))
             love.graphics.setLineWidth(1)
+        end
+
+        if tile.spawn_event then
+            local font = love.graphics.getFont()
+            local label = "E"
+            local width = 22
+            local height = 22
+
+            love.graphics.setColor(SPAWN_MARKER_FILL_COLOR)
+            love.graphics.rectangle("fill", x - width / 2, y - height / 2, width, height)
+            love.graphics.setColor(SPAWN_MARKER_TEXT_COLOR)
+            love.graphics.print(label, x - font:getWidth(label) / 2, y - font:getHeight() / 2)
         end
     end
 end
@@ -733,8 +802,15 @@ end
 local function drawStatus()
     local active_file = state.active_file_name or ("map_%03d.lua"):format(state.export_index)
     local dirty_text = state.dirty and "*" or "saved"
+    local message = state.message
+
+    if state.spawn_edit then
+        message = ("Spawn event q=%d r=%d: %s_   Enter save  Esc cancel")
+            :format(state.spawn_edit.q, state.spawn_edit.r, state.spawn_edit.text)
+    end
+
     local text = ("%s   Mode: %s   Palette: %d   Swatch: %d   File: %s   Tiles: %d")
-        :format(state.message, state.paint_mode, state.palette_id, state.swatch_index, active_file .. " " .. dirty_text, #sortedTiles())
+        :format(message, state.paint_mode, state.palette_id, state.swatch_index, active_file .. " " .. dirty_text, #sortedTiles())
 
     love.graphics.setColor(0, 0, 0, 0.48)
     love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), 76)
@@ -795,6 +871,18 @@ function editor.draw()
 end
 
 function editor.keypressed(key)
+    if state.spawn_edit then
+        if key == "escape" then
+            cancelSpawnEventEdit()
+        elseif key == "return" or key == "kpenter" then
+            commitSpawnEventEdit()
+        elseif key == "backspace" then
+            state.spawn_edit.text = state.spawn_edit.text:sub(1, -2)
+        end
+
+        return
+    end
+
     if key == "escape" then
         if state.door_selection then
             state.door_selection = nil
@@ -828,7 +916,17 @@ function editor.keypressed(key)
         state.paint_mode = "door"
         state.door_selection = nil
         state.message = "Door mode: click two adjacent hexes."
-    elseif key == "e" or key == "return" or key == "kpenter" then
+    elseif key == "e" then
+        if state.confirm_action == "export" then
+            state.message = "Export pending. Press Enter to overwrite, or choose another action to cancel."
+            return
+        end
+
+        local mouse_x, mouse_y = love.mouse.getPosition()
+        local q, r = screenToTile(mouse_x, mouse_y)
+
+        startSpawnEventEditAt(q, r)
+    elseif key == "return" or key == "kpenter" then
         exportMap()
     elseif key == "a" then
         cancelConfirmation()
@@ -869,6 +967,21 @@ function editor.keypressed(key)
     end
 end
 
+function editor.textinput(text)
+    if not state.spawn_edit then
+        return
+    end
+
+    if state.spawn_edit.suppress_text and text:lower() == state.spawn_edit.suppress_text then
+        state.spawn_edit.suppress_text = nil
+        return
+    end
+
+    state.spawn_edit.suppress_text = nil
+
+    state.spawn_edit.text = state.spawn_edit.text .. text
+end
+
 function editor.keyreleased(key)
     if key == "space" then
         state.space_down = false
@@ -876,6 +989,10 @@ function editor.keyreleased(key)
 end
 
 function editor.mousepressed(x, y, button)
+    if state.spawn_edit then
+        return
+    end
+
     if state.paint_mode == "door" and button == 1 and not state.space_down then
         cancelConfirmation()
         local q, r = screenToTile(x, y)
@@ -911,6 +1028,10 @@ function editor.mousereleased(_, _, button)
 end
 
 function editor.mousemoved(x, y, dx, dy)
+    if state.spawn_edit then
+        return
+    end
+
     if state.pan_dragging then
         state.camera_x = state.camera_x + dx
         state.camera_y = state.camera_y + dy

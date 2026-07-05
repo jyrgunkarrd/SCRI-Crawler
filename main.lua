@@ -69,6 +69,10 @@ if hasArg("--map-editor") then
         map_editor.keypressed(key, scancode, isrepeat)
     end
 
+    function love.textinput(text)
+        map_editor.textinput(text)
+    end
+
     function love.keyreleased(key, scancode)
         map_editor.keyreleased(key, scancode)
     end
@@ -100,6 +104,7 @@ local camera = require("src.rndr.camera")
 local agent_logic = require("src.sys.agent_logic")
 local agent_uix = require("src.rndr.agent_uix")
 local deck_hand_vis = require("src.rndr.deck_hand_vis")
+local event_spawn = require("src.sys.event_spawn")
 
 local room
 local DEV_MAP_CONFIG_PATH = "data.dev_map"
@@ -166,6 +171,7 @@ local function populatePlayerAgents(target_room)
 
     for _, tile in ipairs(target_room.tiles or {}) do
         tile.agent = nil
+        tile.enemy = nil
 
         if tile.start then
             start_tiles[#start_tiles + 1] = tile
@@ -256,6 +262,7 @@ local function loadMapFile()
             chamber = true,
             start = tile.start,
             corridor = tile.corridor,
+            spawn_event = tile.spawn_event,
             palette = tile.palette,
             swatch = tile.swatch,
             color = tile.color,
@@ -277,6 +284,12 @@ local function loadMapFile()
     return loaded_room
 end
 
+local function triggerPlayerRoomSpawns(target_room)
+    if event_spawn.triggerForPlayerRooms(target_room) then
+        agent_logic.refreshMovementRange(target_room)
+    end
+end
+
 function love.load()
     love.math.setRandomSeed(os.time())
     love.graphics.setDefaultFilter("linear", "linear", 1)
@@ -284,6 +297,8 @@ function love.load()
     love.graphics.setBackgroundColor(0.055, 0.058, 0.068)
 
     room = loadMapFile()
+    event_spawn.initialize(room)
+    triggerPlayerRoomSpawns(room)
     agent_logic.clearSelection()
     deck_hand_vis.load()
     camera.reset()
@@ -294,6 +309,7 @@ function love.update(dt)
     local camera_x, camera_y = camera.getOffset()
 
     agent_logic.update(dt, room, camera_x, camera_y, agent_uix.isModalOpen())
+    triggerPlayerRoomSpawns(room)
 end
 
 function love.draw()
@@ -303,6 +319,7 @@ function love.draw()
     map_tiles.drawBase(room, camera_x, camera_y)
     if not modal_open then
         overlays.drawMovementRange(room, camera_x, camera_y, agent_logic.getMovementRange())
+        overlays.drawEnemyZonesOfControl(room, camera_x, camera_y, agent_logic.getMovementRange())
     end
     if not modal_open then
         overlays.drawHover(room, camera_x, camera_y)
@@ -337,8 +354,10 @@ function love.keypressed(key)
         end
     elseif key == "r" then
         agent_uix.closeModal()
-        room = loadMapFile()
         agent_logic.clearSelection()
+        room = loadMapFile()
+        event_spawn.initialize(room)
+        triggerPlayerRoomSpawns(room)
         deck_hand_vis.reload()
         camera.reset()
     elseif key == "," then

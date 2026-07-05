@@ -6,8 +6,10 @@ local SQRT_3 = math.sqrt(3)
 local TILE_COLOR = { 0.33, 0.49, 0.42, 1 }
 local CORRIDOR_COLOR = { 0.27, 0.39, 0.35, 1 }
 local AGENT_PORTRAIT_DIR = "assets/images/agents"
+local ENEMY_PORTRAIT_DIR = "assets/images/enemy"
 local PORTRAIT_RADIUS = HEX_SIZE * 0.78
 local PORTRAIT_OUTLINE_COLOR = { 0.015, 0.012, 0.01, 1 }
+local ENEMY_PORTRAIT_OUTLINE_COLOR = { 0.6118, 0, 0.0431, 1 }
 local EXHAUSTED_PORTRAIT_COLOR = { 0.34, 0.34, 0.34, 0.72 }
 local SELECTED_PULSE_SPEED = 3.6
 local SELECTED_PULSE_AMOUNT = 0.075
@@ -19,6 +21,8 @@ local SHOUT_BOX_PAD_Y = 4
 local MOVE_EASE_OVERSHOOT = 1.04
 local agent_portraits = {}
 local missing_agent_portraits = {}
+local enemy_portraits = {}
+local missing_enemy_portraits = {}
 
 local function axialToPixel(q, r)
     return HEX_SIZE * SQRT_3 * (q + r / 2), HEX_SIZE * 1.5 * r
@@ -96,6 +100,37 @@ function map_tiles.getAgentPortrait(agent)
     return getAgentPortrait(agent)
 end
 
+local function getEnemyPortrait(enemy)
+    if not enemy or not enemy.id then
+        return nil
+    end
+
+    if enemy_portraits[enemy.id] then
+        return enemy_portraits[enemy.id]
+    end
+
+    if missing_enemy_portraits[enemy.id] then
+        return nil
+    end
+
+    local path = ("%s/%s.webp"):format(ENEMY_PORTRAIT_DIR, enemy.id)
+    local ok, image = pcall(image_loader.newImage, path)
+
+    if not ok then
+        print("Unable to load enemy portrait '" .. path .. "': " .. tostring(image))
+        missing_enemy_portraits[enemy.id] = true
+        return nil
+    end
+
+    enemy_portraits[enemy.id] = image
+
+    return image
+end
+
+function map_tiles.getEnemyPortrait(enemy)
+    return getEnemyPortrait(enemy)
+end
+
 local function getAgentCurrentAp(agent)
     if not agent or not agent.runtime_stats or not agent.runtime_stats.ap then
         return nil
@@ -104,7 +139,35 @@ local function getAgentCurrentAp(agent)
     return agent.runtime_stats.ap.current
 end
 
-local function drawPortraitTile(tile, center_x, center_y, selected)
+local function drawHexPortrait(image, center_x, center_y, radius, color, outline_color)
+    local points = buildHexPoints(center_x, center_y, radius)
+    local scale = (radius * 2) / math.min(image:getWidth(), image:getHeight())
+
+    love.graphics.stencil(function()
+        love.graphics.polygon("fill", points)
+    end, "replace", 1)
+
+    love.graphics.setStencilTest("equal", 1)
+    love.graphics.setColor(color)
+    love.graphics.draw(
+        image,
+        center_x,
+        center_y,
+        0,
+        scale,
+        scale,
+        image:getWidth() / 2,
+        image:getHeight() / 2
+    )
+    love.graphics.setStencilTest()
+
+    love.graphics.setColor(outline_color)
+    love.graphics.setLineWidth(3)
+    love.graphics.polygon("line", points)
+    love.graphics.setLineWidth(1)
+end
+
+local function drawAgentPortraitTile(tile, center_x, center_y, selected)
     if not tile.agent then
         return
     end
@@ -122,37 +185,27 @@ local function drawPortraitTile(tile, center_x, center_y, selected)
     end
 
     local radius = PORTRAIT_RADIUS * pulse_scale
-    local points = buildHexPoints(center_x, center_y, radius)
-    local scale = (radius * 2) / math.min(image:getWidth(), image:getHeight())
-
-    love.graphics.stencil(function()
-        love.graphics.polygon("fill", points)
-    end, "replace", 1)
-
-    love.graphics.setStencilTest("equal", 1)
+    local color = { 1, 1, 1, 1 }
 
     if getAgentCurrentAp(tile.agent) == 0 then
-        love.graphics.setColor(EXHAUSTED_PORTRAIT_COLOR)
-    else
-        love.graphics.setColor(1, 1, 1, 1)
+        color = EXHAUSTED_PORTRAIT_COLOR
     end
 
-    love.graphics.draw(
-        image,
-        center_x,
-        center_y,
-        0,
-        scale,
-        scale,
-        image:getWidth() / 2,
-        image:getHeight() / 2
-    )
-    love.graphics.setStencilTest()
+    drawHexPortrait(image, center_x, center_y, radius, color, PORTRAIT_OUTLINE_COLOR)
+end
 
-    love.graphics.setColor(PORTRAIT_OUTLINE_COLOR)
-    love.graphics.setLineWidth(3)
-    love.graphics.polygon("line", points)
-    love.graphics.setLineWidth(1)
+local function drawEnemyPortraitTile(tile, center_x, center_y)
+    if not tile.enemy then
+        return
+    end
+
+    local image = getEnemyPortrait(tile.enemy)
+
+    if not image then
+        return
+    end
+
+    drawHexPortrait(image, center_x, center_y, PORTRAIT_RADIUS, { 1, 1, 1, 1 }, ENEMY_PORTRAIT_OUTLINE_COLOR)
 end
 
 local function drawMovingPortrait(agent, center_x, center_y)
@@ -162,31 +215,7 @@ local function drawMovingPortrait(agent, center_x, center_y)
         return
     end
 
-    local points = buildHexPoints(center_x, center_y, PORTRAIT_RADIUS)
-    local scale = (PORTRAIT_RADIUS * 2) / math.min(image:getWidth(), image:getHeight())
-
-    love.graphics.stencil(function()
-        love.graphics.polygon("fill", points)
-    end, "replace", 1)
-
-    love.graphics.setStencilTest("equal", 1)
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.draw(
-        image,
-        center_x,
-        center_y,
-        0,
-        scale,
-        scale,
-        image:getWidth() / 2,
-        image:getHeight() / 2
-    )
-    love.graphics.setStencilTest()
-
-    love.graphics.setColor(PORTRAIT_OUTLINE_COLOR)
-    love.graphics.setLineWidth(3)
-    love.graphics.polygon("line", points)
-    love.graphics.setLineWidth(1)
+    drawHexPortrait(image, center_x, center_y, PORTRAIT_RADIUS, { 1, 1, 1, 1 }, PORTRAIT_OUTLINE_COLOR)
 end
 
 local function easeOutBack(t)
@@ -255,8 +284,10 @@ function map_tiles.drawPortraits(room, camera_x, camera_y, selected_tile, moving
     for _, tile in ipairs(room.tiles) do
         local x, y = axialToPixel(tile.q, tile.r)
 
+        drawEnemyPortraitTile(tile, x + offset_x, y + offset_y)
+
         if tile.agent ~= moving_agent then
-            drawPortraitTile(tile, x + offset_x, y + offset_y, tile == selected_tile)
+            drawAgentPortraitTile(tile, x + offset_x, y + offset_y, tile == selected_tile)
         end
     end
 
