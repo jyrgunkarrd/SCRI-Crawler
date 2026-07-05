@@ -25,6 +25,7 @@ Controls:
 - `1`-`9`: load palette 1-9 from `assets/map_palettes`
 - `0`: load palette 10 from `assets/map_palettes`
 - `,` / `.`: select previous / next color swatch
+- `Tab`: toggle R/C tile labels, where `R` is a room hex and `C` is a corridor hex
 - Middle mouse drag: pan canvas
 - Hold `Space` and drag: pan canvas
 - Mouse wheel: adjust editor hex display size

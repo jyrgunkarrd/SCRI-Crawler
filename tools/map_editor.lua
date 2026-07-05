@@ -2,6 +2,7 @@ local editor = {}
 
 local OUTPUT_DIR = "data/map_files"
 local PALETTE_DIR = "assets/map_palettes"
+local FONT_PATH = "assets/fonts/Furore.otf"
 local SWATCH_COUNT = 10
 local HEX_SIZE = 42
 local SQRT_3 = math.sqrt(3)
@@ -39,6 +40,7 @@ local state = {
     dirty = false,
     confirm_action = nil,
     confirm_target = nil,
+    show_tile_labels = false,
     space_down = false,
 }
 
@@ -670,6 +672,30 @@ local function drawTiles()
     end
 end
 
+local function drawTileLabels()
+    if not state.show_tile_labels then
+        return
+    end
+
+    local font = love.graphics.getFont()
+
+    love.graphics.setColor(1, 1, 1, 0.92)
+
+    for _, tile in ipairs(sortedTiles()) do
+        local x, y = getScreenCenter(tile.q, tile.r)
+        local label = tile.corridor and "C" or "R"
+        local width = 22
+        local height = 22
+
+        love.graphics.setColor(0, 0, 0, 0.78)
+        love.graphics.rectangle("fill", x - width / 2, y - height / 2, width, height)
+        love.graphics.setColor(1, 1, 1, 0.92)
+        love.graphics.print(label, x - font:getWidth(label) / 2, y - font:getHeight() / 2)
+    end
+
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
 local function drawDoors()
     for _, door in pairs(state.doors) do
         local ax, ay = getScreenCenter(door.a.q, door.a.r)
@@ -749,6 +775,7 @@ function editor.load()
     love.window.setTitle("SCRI Diablo Map Editor")
     love.graphics.setBackgroundColor(BACKGROUND_COLOR)
     love.graphics.setDefaultFilter("linear", "linear", 1)
+    love.graphics.setFont(love.graphics.newFont(FONT_PATH, 18))
     state.palette = getFallbackPalette()
     loadPalette(1)
     scanMapFiles()
@@ -760,6 +787,7 @@ function editor.draw()
     love.graphics.clear(BACKGROUND_COLOR[1], BACKGROUND_COLOR[2], BACKGROUND_COLOR[3], BACKGROUND_COLOR[4])
     drawGrid()
     drawTiles()
+    drawTileLabels()
     drawDoors()
     drawHover()
     drawStatus()
@@ -827,6 +855,10 @@ function editor.keypressed(key)
         state.camera_x = 0
         state.camera_y = 0
         state.message = "Reset camera."
+    elseif key == "tab" then
+        cancelConfirmation()
+        state.show_tile_labels = not state.show_tile_labels
+        state.message = state.show_tile_labels and "Tile labels on." or "Tile labels off."
     elseif key == "s" then
         local mouse_x, mouse_y = love.mouse.getPosition()
         local q, r = screenToTile(mouse_x, mouse_y)

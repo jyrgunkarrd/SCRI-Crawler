@@ -4,6 +4,7 @@ local editor = {}
 
 local INPUT_DIR = "assets/images/process_queue"
 local OUTPUT_DIR = "assets/images/processed"
+local FONT_PATH = "assets/fonts/Furore.otf"
 local EXPORT_SIZE = 512
 local EXPORT_RADIUS = EXPORT_SIZE / 2
 local PREVIEW_RADIUS = 310
@@ -328,6 +329,7 @@ function editor.load()
     love.window.setTitle("SCRI Diablo Hex Portrait Editor")
     love.graphics.setBackgroundColor(BACKGROUND_COLOR)
     love.graphics.setDefaultFilter("linear", "linear", 1)
+    love.graphics.setFont(love.graphics.newFont(FONT_PATH, 18))
     scanInputDirectory()
 end
 
