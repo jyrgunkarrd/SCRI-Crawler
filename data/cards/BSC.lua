@@ -7,7 +7,7 @@ local basic_cards = {
         id = "ATK",
         name = "Attack",
         cost = 1,
-        rarity = "basic",
+        rarity = "common",
         tags = {
 
             "Placeholder",

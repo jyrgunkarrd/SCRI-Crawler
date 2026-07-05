@@ -15,7 +15,7 @@ local agent_logic = {
 
 local SHOUT_CHARS_PER_SECOND = 58
 local SHOUT_MIN_TYPE_SECONDS = 0.08
-local SHOUT_HOLD_SECONDS = 0.65
+local SHOUT_HOLD_SECONDS = 0.75
 local MOVE_ANIMATION_SECONDS = 0.18
 
 local function pointInPolygon(x, y, points)

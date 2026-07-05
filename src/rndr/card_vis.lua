@@ -13,6 +13,10 @@ local TEXT_BOX_PADDING = 14
 local BODY_FONT_SIZE = 13
 local FLAVOR_FONT_SIZE = 12
 local TEXT_BLOCK_GAP = 10
+local TAG_ROW_HEIGHT = 22
+local TAG_GAP = 6
+local TAG_PAD_X = 7
+local TAG_TEXT_Y_OFFSET = 3
 local COST_PIP_WIDTH = 6
 local COST_PIP_GAP = 4
 local COST_PIP_TEXT_GAP = 6
@@ -21,19 +25,20 @@ local ZERO_COST_PIP_WIDTH = 22
 local ZERO_COST_PIP_HEIGHT = 5
 local ZERO_COST_PIP_TOP_PADDING = 10
 local HEADER_TEXT_Y_OFFSET = 1
-local RARITY_LABEL_WIDTH = 82
-local RARITY_LABEL_HEIGHT = 30
-local RARITY_LABEL_TEXT_Y_OFFSET = -2
+local RARITY_LABEL_MIN_WIDTH = 28
+local RARITY_LABEL_PAD_X = 10
+local RARITY_LABEL_PAD_Y = 5
 local CARD_BACKING_PADDING = 8
 local CARD_IMAGE_EXTENSIONS = { "webp", "png", "jpg", "jpeg" }
 local RARITY_PATH = "data.rarity"
-local DEFAULT_RARITY_COLOR = { 1, 1, 1, 1 }
+local DEFAULT_RARITY_CARD_COLOR = { 1, 1, 1, 1 }
+local DEFAULT_RARITY_LABEL_TEXT_COLOR = { 1, 1, 1, 1 }
 
 local card_images = {}
 local missing_images = {}
 local body_font
 local flavor_font
-local rarity_colors
+local rarity_styles
 
 local function getBodyFont()
     if not body_font then
@@ -51,15 +56,17 @@ local function getFlavorFont()
     return flavor_font
 end
 
-local function htmlColorToLoveColor(color)
+local function htmlColorToLoveColor(color, fallback)
+    fallback = fallback or DEFAULT_RARITY_CARD_COLOR
+
     if type(color) ~= "string" then
-        return DEFAULT_RARITY_COLOR
+        return fallback
     end
 
     color = color:gsub("#", "")
 
     if #color ~= 6 then
-        return DEFAULT_RARITY_COLOR
+        return fallback
     end
 
     local r = tonumber(color:sub(1, 2), 16)
@@ -67,35 +74,73 @@ local function htmlColorToLoveColor(color)
     local b = tonumber(color:sub(5, 6), 16)
 
     if not r or not g or not b then
-        return DEFAULT_RARITY_COLOR
+        return fallback
     end
 
     return { r / 255, g / 255, b / 255, 1 }
 end
 
-local function getRarityColors()
-    if rarity_colors then
-        return rarity_colors
+local function getRarityField(rarity_entry, field)
+    if type(rarity_entry) ~= "table" then
+        return nil
     end
 
-    rarity_colors = {}
+    if rarity_entry[field] then
+        return rarity_entry[field]
+    end
+
+    for _, entry in ipairs(rarity_entry) do
+        if type(entry) == "table" and entry[field] then
+            return entry[field]
+        end
+    end
+
+    return nil
+end
+
+local function normalizeRarityStyle(rarity_entry)
+    if type(rarity_entry) == "string" then
+        return {
+            card = htmlColorToLoveColor(rarity_entry, DEFAULT_RARITY_CARD_COLOR),
+            label_text = DEFAULT_RARITY_LABEL_TEXT_COLOR,
+        }
+    end
+
+    local card_color = getRarityField(rarity_entry, "card") or getRarityField(rarity_entry, "box")
+    local label_text_color = getRarityField(rarity_entry, "label_text")
+
+    return {
+        card = htmlColorToLoveColor(card_color, DEFAULT_RARITY_CARD_COLOR),
+        label_text = htmlColorToLoveColor(label_text_color, DEFAULT_RARITY_LABEL_TEXT_COLOR),
+    }
+end
+
+local function getRarityStyles()
+    if rarity_styles then
+        return rarity_styles
+    end
+
+    rarity_styles = {}
 
     local ok, rarity_data = pcall(require, RARITY_PATH)
 
     if not ok then
         print("Unable to load rarity colors: " .. tostring(rarity_data))
-        return rarity_colors
+        return rarity_styles
     end
 
-    for rarity, color in pairs(rarity_data) do
-        rarity_colors[tostring(rarity):lower()] = htmlColorToLoveColor(color)
+    for rarity, rarity_entry in pairs(rarity_data) do
+        rarity_styles[tostring(rarity):lower()] = normalizeRarityStyle(rarity_entry)
     end
 
-    return rarity_colors
+    return rarity_styles
 end
 
-local function getRarityColor(rarity)
-    return getRarityColors()[(rarity or ""):lower()] or DEFAULT_RARITY_COLOR
+local function getRarityStyle(rarity)
+    return getRarityStyles()[(rarity or ""):lower()] or {
+        card = DEFAULT_RARITY_CARD_COLOR,
+        label_text = DEFAULT_RARITY_LABEL_TEXT_COLOR,
+    }
 end
 
 local function getRarityLabel(rarity)
@@ -106,6 +151,10 @@ local function getRarityLabel(rarity)
     end
 
     return normalized
+end
+
+local function getRarityLabelHeight()
+    return getBodyFont():getHeight() + RARITY_LABEL_PAD_Y * 2
 end
 
 local function findCardImagePath(card_id)
@@ -195,17 +244,78 @@ local function drawWrappedText(text, x, y, width, height, align, font, vertical_
     return text_y, text_height
 end
 
-local function drawTextBoxContent(text, flavor, x, y, width, height)
-    local _, text_height = drawWrappedText(text, x, y, width, height, "left", getBodyFont(), "top")
+local function drawTags(tags, x, y, width)
+    if not tags or #tags == 0 then
+        return 0
+    end
+
+    local previous_font = love.graphics.getFont()
+    local font = getBodyFont()
+    local fitted_tags = {}
+    local total_width = 0
+
+    love.graphics.setFont(font)
+
+    for _, tag in ipairs(tags) do
+        local label = tostring(tag)
+        local tag_width = font:getWidth(label) + TAG_PAD_X * 2
+        local next_width = tag_width
+
+        if total_width > 0 then
+            next_width = next_width + TAG_GAP
+        end
+
+        if total_width + next_width <= width then
+            fitted_tags[#fitted_tags + 1] = {
+                label = label,
+                width = tag_width,
+            }
+            total_width = total_width + next_width
+        end
+    end
+
+    local cursor_x = x + (width - total_width) / 2
+
+    for index, tag in ipairs(fitted_tags) do
+        if index > 1 then
+            cursor_x = cursor_x + TAG_GAP
+        end
+
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.rectangle("fill", cursor_x, y, tag.width, TAG_ROW_HEIGHT)
+
+        love.graphics.setColor(0, 0, 0, 1)
+        love.graphics.print(tag.label, cursor_x + TAG_PAD_X, y + TAG_TEXT_Y_OFFSET)
+
+        cursor_x = cursor_x + tag.width
+    end
+
+    love.graphics.setFont(previous_font)
+
+    return TAG_ROW_HEIGHT + TEXT_BLOCK_GAP
+end
+
+local function drawTextBoxContent(tags, text, flavor, x, y, width, height)
+    local tag_offset = drawTags(tags, x, y, width)
+    local text_y = y + tag_offset
+    local text_height_available = height - tag_offset
+
+    if text_height_available <= 0 then
+        return
+    end
+
+    love.graphics.setColor(1, 1, 1, 1)
+    local _, text_height = drawWrappedText(text, x, text_y, width, text_height_available, "left", getBodyFont(), "top")
 
     if not flavor or flavor == "" then
         return
     end
 
-    local flavor_y = y + text_height + TEXT_BLOCK_GAP
-    local remaining_height = height - text_height - TEXT_BLOCK_GAP
+    local flavor_y = text_y + text_height + TEXT_BLOCK_GAP
+    local remaining_height = text_height_available - text_height - TEXT_BLOCK_GAP
 
     if remaining_height > 0 then
+        love.graphics.setColor(1, 1, 1, 1)
         drawWrappedText(flavor, x, flavor_y, width, remaining_height, "left", getFlavorFont(), "top")
     end
 end
@@ -267,19 +377,25 @@ local function drawClippedHeaderBox(card_x, card_y, card_height, box_x, box_bott
     love.graphics.setStencilTest()
 end
 
-local function drawRarityLabel(rarity, x, y, color)
+local function drawRarityLabel(rarity, x, y, box_color, label_text_color)
     local label = getRarityLabel(rarity)
+    local previous_font = love.graphics.getFont()
+    local font = getBodyFont()
+    local label_width = math.max(RARITY_LABEL_MIN_WIDTH, font:getWidth(label) + RARITY_LABEL_PAD_X * 2)
+    local label_height = getRarityLabelHeight()
 
-    love.graphics.setColor(color)
-    love.graphics.rectangle("fill", x, y, RARITY_LABEL_WIDTH, RARITY_LABEL_HEIGHT)
+    love.graphics.setFont(font)
+    love.graphics.setColor(box_color)
+    love.graphics.rectangle("fill", x, y, label_width, label_height)
 
     love.graphics.setColor(0, 0, 0, 1)
     love.graphics.setLineWidth(2)
-    love.graphics.line(x, y + RARITY_LABEL_HEIGHT, x + RARITY_LABEL_WIDTH, y + RARITY_LABEL_HEIGHT)
-    love.graphics.line(x + RARITY_LABEL_WIDTH, y, x + RARITY_LABEL_WIDTH, y + RARITY_LABEL_HEIGHT)
+    love.graphics.line(x, y + label_height, x + label_width, y + label_height)
+    love.graphics.line(x + label_width, y, x + label_width, y + label_height)
 
-    love.graphics.setColor(1, 1, 1, 1)
-    drawWrappedText(label, x, y + RARITY_LABEL_TEXT_Y_OFFSET, RARITY_LABEL_WIDTH, RARITY_LABEL_HEIGHT, "center")
+    love.graphics.setColor(label_text_color)
+    love.graphics.printf(label, x, y + (label_height - font:getHeight()) / 2, label_width, "center")
+    love.graphics.setFont(previous_font)
 end
 
 function card_vis.loadCardAssets(card)
@@ -295,7 +411,7 @@ function card_vis.getCardHeight(card)
 end
 
 function card_vis.getVisibleHandCardHeight()
-    return CARD_PADDING + HEADER_HEIGHT + RARITY_LABEL_HEIGHT
+    return CARD_PADDING + HEADER_HEIGHT + getRarityLabelHeight()
 end
 
 function card_vis.getExtendedHandCardHeight(card)
@@ -336,7 +452,9 @@ function card_vis.drawCard(card, x, y)
     local header_y = content_y
     local image_y = header_y + HEADER_HEIGHT
     local text_box_y = image_y + image_height + CARD_PADDING
-    local rarity_color = getRarityColor(card.rarity)
+    local rarity_style = getRarityStyle(card.rarity)
+    local rarity_card_color = rarity_style.card
+    local rarity_label_text_color = rarity_style.label_text
 
     love.graphics.setColor(0, 0, 0, 1)
     love.graphics.rectangle(
@@ -352,26 +470,27 @@ function card_vis.drawCard(card, x, y)
     love.graphics.rectangle("fill", content_x, header_y, content_width, HEADER_HEIGHT)
 
     local _, header_text_y = getWrappedTextBounds(card.name, content_x, header_y, content_width, HEADER_HEIGHT)
-    local pips_right_x, pips_bottom_y = drawCostPips(card.cost, content_x, y, header_text_y - COST_PIP_TEXT_GAP, rarity_color)
+    local pips_right_x, pips_bottom_y = drawCostPips(card.cost, content_x, y, header_text_y - COST_PIP_TEXT_GAP, rarity_card_color)
 
     if pips_right_x and pips_bottom_y then
-        drawClippedHeaderBox(x, y, card_height, pips_right_x + COST_BOX_GAP, pips_bottom_y, rarity_color)
+        drawClippedHeaderBox(x, y, card_height, pips_right_x + COST_BOX_GAP, pips_bottom_y, rarity_card_color)
     end
 
     love.graphics.setColor(1, 1, 1, 1)
     drawWrappedText(card.name, content_x, header_y + HEADER_TEXT_Y_OFFSET, content_width, HEADER_HEIGHT, "left")
 
     drawCardImage(card, x, image_y, CARD_WIDTH)
-    drawRarityLabel(card.rarity, x, image_y, rarity_color)
+    drawRarityLabel(card.rarity, x, image_y, rarity_card_color, rarity_label_text_color)
 
     love.graphics.setColor(0, 0, 0, 1)
     love.graphics.rectangle("fill", content_x, text_box_y, content_width, TEXT_BOX_HEIGHT)
 
-    love.graphics.setColor(rarity_color)
+    love.graphics.setColor(rarity_card_color)
     love.graphics.setLineWidth(1)
     love.graphics.rectangle("line", content_x, text_box_y, content_width, TEXT_BOX_HEIGHT)
     love.graphics.setColor(1, 1, 1, 1)
     drawTextBoxContent(
+        card.tags or {},
         card.textbox or "",
         card.flavor,
         content_x + TEXT_BOX_PADDING,
@@ -380,7 +499,7 @@ function card_vis.drawCard(card, x, y)
         TEXT_BOX_HEIGHT - TEXT_BOX_PADDING * 2
     )
 
-    love.graphics.setColor(rarity_color)
+    love.graphics.setColor(rarity_card_color)
     love.graphics.setLineWidth(CARD_OUTLINE_WIDTH)
     love.graphics.rectangle("line", x, y, CARD_WIDTH, card_height, CARD_RADIUS, CARD_RADIUS)
     love.graphics.setLineWidth(1)
