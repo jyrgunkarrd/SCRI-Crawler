@@ -105,6 +105,8 @@ local agent_logic = require("src.sys.agent_logic")
 local agent_uix = require("src.rndr.agent_uix")
 local deck_hand_vis = require("src.rndr.deck_hand_vis")
 local event_spawn = require("src.sys.event_spawn")
+local card_play = require("src.sys.card_play")
+local action_vis = require("src.rndr.action_vis")
 
 local room
 local DEV_MAP_CONFIG_PATH = "data.dev_map"
@@ -168,6 +170,7 @@ local function populatePlayerAgents(target_room)
     local agents_by_id = getAgentDefinitionMap()
     local agent_ids = getDevSquadAgentIds()
     local start_tiles = {}
+    local placed_agents = {}
 
     for _, tile in ipairs(target_room.tiles or {}) do
         tile.agent = nil
@@ -194,8 +197,11 @@ local function populatePlayerAgents(target_room)
         else
             agent_logic.ensureRuntimeStats(agent)
             tile.agent = agent
+            placed_agents[#placed_agents + 1] = agent
         end
     end
+
+    agent_logic.initializeActionHands(placed_agents)
 end
 
 local function getDevMapPath()
@@ -310,6 +316,7 @@ function love.update(dt)
 
     agent_logic.update(dt, room, camera_x, camera_y, agent_uix.isModalOpen())
     triggerPlayerRoomSpawns(room)
+    action_vis.update(dt)
 end
 
 function love.draw()
@@ -318,8 +325,12 @@ function love.draw()
 
     map_tiles.drawBase(room, camera_x, camera_y)
     if not modal_open then
-        overlays.drawMovementRange(room, camera_x, camera_y, agent_logic.getMovementRange())
-        overlays.drawEnemyZonesOfControl(room, camera_x, camera_y, agent_logic.getMovementRange())
+        if card_play.isDragging() then
+            overlays.drawCardPlayRange(room, camera_x, camera_y, card_play.getOverlay(room))
+        else
+            overlays.drawMovementRange(room, camera_x, camera_y, agent_logic.getMovementRange())
+            overlays.drawEnemyZonesOfControl(room, camera_x, camera_y, agent_logic.getMovementRange())
+        end
     end
     if not modal_open then
         overlays.drawHover(room, camera_x, camera_y)
@@ -334,7 +345,7 @@ function love.draw()
         movement_animation and movement_animation.agent or nil
     )
     map_tiles.drawMovingAgent(room, camera_x, camera_y, movement_animation)
-    if not modal_open then
+    if not modal_open and not card_play.isDragging() then
         overlays.drawMovementPreview(room, camera_x, camera_y, agent_logic.getMovementPreview(), agent_logic.getSelectedAgent())
     end
     map_tiles.drawSelectionShout(room, camera_x, camera_y, agent_logic.getSelectedTile(), agent_logic.getSelectionShout())
@@ -345,15 +356,20 @@ function love.draw()
     if not modal_open then
         deck_hand_vis.draw()
     end
+
+    action_vis.draw()
 end
 
 function love.keypressed(key)
     if key == "escape" then
-        if not agent_uix.closeModal() then
+        if card_play.isDragging() then
+            card_play.cancelDrag()
+        elseif not agent_uix.closeModal() then
             love.event.quit()
         end
     elseif key == "r" then
         agent_uix.closeModal()
+        card_play.cancelDrag()
         agent_logic.clearSelection()
         room = loadMapFile()
         event_spawn.initialize(room)
@@ -378,12 +394,22 @@ function love.mousepressed(x, y, button)
 
     local camera_x, camera_y = camera.getOffset()
 
+    if deck_hand_vis.mousepressed(room, button) then
+        return
+    end
+
     if not agent_logic.handleMousePressed(room, x, y, button, camera_x, camera_y) then
         camera.mousepressed(button)
     end
 end
 
-function love.mousereleased(_, _, button)
+function love.mousereleased(x, y, button)
+    local camera_x, camera_y = camera.getOffset()
+
+    if deck_hand_vis.mousereleased(room, x, y, button, camera_x, camera_y) then
+        return
+    end
+
     camera.mousereleased(button)
 end
 

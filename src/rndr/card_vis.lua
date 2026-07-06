@@ -439,6 +439,28 @@ function card_vis.drawCardPortrait(card, x, y, width, height)
     love.graphics.setStencilTest()
 end
 
+function card_vis.drawCardImageOnly(card, center_x, center_y, width)
+    local image = getCardImage(card)
+
+    if not image then
+        return
+    end
+
+    local scale = width / image:getWidth()
+
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(
+        image,
+        center_x,
+        center_y,
+        0,
+        scale,
+        scale,
+        image:getWidth() / 2,
+        image:getHeight() / 2
+    )
+end
+
 function card_vis.drawCard(card, x, y)
     if not card then
         return

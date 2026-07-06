@@ -1,56 +1,32 @@
 local card_vis = require("src.rndr.card_vis")
+local agent_logic = require("src.sys.agent_logic")
+local card_play = require("src.sys.card_play")
+local action_vis = require("src.rndr.action_vis")
 local sfx_logic = require("src.sys.sfx_logic")
 
 local deck_hand_vis = {}
 
-local DEV_HAND_PATH = "data.dev_hand"
-local CARD_INDEX_PATH = "data.cards.index"
 local HAND_CARD_SPACING = 180
 local HAND_EDGE_MARGIN = 48
 local CARD_BACKING_PADDING = 8
 local HOVER_PREVIEW_HAND_GAP = 18
 local HOVER_PREVIEW_TOP_MARGIN = 18
+local DRAG_IMAGE_W = 60
+local DRAG_OUTLINE_W = 2
 
-local card_index
-local player_hand = {}
 local player_hand_scroll = 0
 local hovered_card_key
+local dragging_hand_index = nil
 
-local function addCardById(card_id, quantity)
-    local card = card_index and card_index.byId[card_id] or nil
+local function getSelectedHand()
+    local agent = agent_logic.getSelectedAgent()
 
-    if not card then
-        print("Unknown card id in dev hand: " .. tostring(card_id))
-        return
-    end
-
-    for _ = 1, math.max(0, math.floor(quantity or 0)) do
-        player_hand[#player_hand + 1] = card
-        card_vis.loadCardAssets(card)
-    end
-end
-
-local function buildDevHand()
-    player_hand = {}
-    player_hand_scroll = 0
-    package.loaded[DEV_HAND_PATH] = nil
-
-    local ok, dev_hand = pcall(require, DEV_HAND_PATH)
-
-    if not ok then
-        print("Unable to load dev hand: " .. tostring(dev_hand))
-        return
-    end
-
-    for _, entry in ipairs(dev_hand.hand or {}) do
-        for card_id, quantity in pairs(entry) do
-            addCardById(card_id, quantity)
-        end
-    end
+    return agent and agent.action_hand or nil
 end
 
 local function getPlayerHandLayout()
-    local card_count = #player_hand
+    local player_hand = getSelectedHand()
+    local card_count = player_hand and #player_hand or 0
 
     if card_count == 0 then
         return nil
@@ -104,9 +80,9 @@ local function getHoveredHandCard(layout)
 end
 
 function deck_hand_vis.load()
-    package.loaded[CARD_INDEX_PATH] = nil
-    card_index = require(CARD_INDEX_PATH)
-    buildDevHand()
+    player_hand_scroll = 0
+    hovered_card_key = nil
+    dragging_hand_index = nil
 end
 
 function deck_hand_vis.reload()
@@ -114,7 +90,7 @@ function deck_hand_vis.reload()
 end
 
 function deck_hand_vis.getPlayerHand()
-    return player_hand
+    return getSelectedHand() or {}
 end
 
 function deck_hand_vis.drawPlayerHand()
@@ -125,11 +101,19 @@ function deck_hand_vis.drawPlayerHand()
     end
 
     for index, card in ipairs(layout.cards) do
-        card_vis.drawCard(card, layout.start_x + (index - 1) * layout.spacing, layout.y)
+        card_vis.loadCardAssets(card)
+
+        if not card_play.isDragging() or index ~= dragging_hand_index then
+            card_vis.drawCard(card, layout.start_x + (index - 1) * layout.spacing, layout.y)
+        end
     end
 end
 
 function deck_hand_vis.drawFocusedCard()
+    if card_play.isDragging() then
+        return
+    end
+
     local layout = getPlayerHandLayout()
     local hovered_card = getHoveredHandCard(layout)
     local hovered_key = hovered_card and (hovered_card.id or hovered_card.name) or nil
@@ -169,12 +153,74 @@ function deck_hand_vis.drawFocusedCard()
 end
 
 function deck_hand_vis.draw()
+    if not agent_logic.getSelectedAgent() then
+        hovered_card_key = nil
+        return
+    end
+
     deck_hand_vis.drawPlayerHand()
     deck_hand_vis.drawFocusedCard()
+    deck_hand_vis.drawDraggedCard()
 end
 
 function deck_hand_vis.wheelmoved(_, y)
     player_hand_scroll = player_hand_scroll - y * 140
+end
+
+function deck_hand_vis.mousepressed(room, button)
+    if button ~= 1 or card_play.isDragging() then
+        return false
+    end
+
+    local layout = getPlayerHandLayout()
+    local card, index = getHoveredHandCard(layout)
+    local agent = agent_logic.getSelectedAgent()
+    local selected_tile = agent_logic.getSelectedTile()
+
+    if not card or not agent or not selected_tile then
+        return false
+    end
+
+    if card_play.startDrag(agent, selected_tile, card, index) then
+        dragging_hand_index = index
+        return true
+    end
+
+    return false
+end
+
+function deck_hand_vis.mousereleased(room, x, y, button, camera_x, camera_y)
+    if button ~= 1 or not card_play.isDragging() then
+        return false
+    end
+
+    local played, event = card_play.release(room, x, y, camera_x, camera_y)
+
+    dragging_hand_index = nil
+
+    if played and event then
+        action_vis.start(event)
+    end
+
+    return played
+end
+
+function deck_hand_vis.drawDraggedCard()
+    local card = card_play.getDraggedCard()
+
+    if not card then
+        return
+    end
+
+    local mouse_x, mouse_y = love.mouse.getPosition()
+    local image_x = mouse_x - DRAG_IMAGE_W / 2
+    local image_y = mouse_y - DRAG_IMAGE_W / 2
+
+    love.graphics.setColor(0, 0, 0, 1)
+    love.graphics.setLineWidth(DRAG_OUTLINE_W)
+    love.graphics.rectangle("line", image_x, image_y, DRAG_IMAGE_W, DRAG_IMAGE_W)
+    love.graphics.setLineWidth(1)
+    card_vis.drawCardImageOnly(card, mouse_x, mouse_y, DRAG_IMAGE_W)
 end
 
 return deck_hand_vis

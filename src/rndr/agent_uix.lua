@@ -356,16 +356,37 @@ local function drawSlotWindow(agent, layout)
     end
 end
 
+local function drawFateRows(entries, section_x, section_y, section_w, section_h)
+    local row_x = section_x + MODAL_PAD
+    local row_y = section_y + MODAL_PAD
+    local row_w = section_w - MODAL_PAD * 2
+
+    for index, entry in ipairs(entries) do
+        local y = row_y + (index - 1) * (FATE_ROW_H + FATE_ROW_GAP)
+
+        if y + FATE_ROW_H <= section_y + section_h - MODAL_PAD then
+            love.graphics.setColor(FATE_ROW_COLOR)
+            love.graphics.rectangle("fill", row_x, y, row_w, FATE_ROW_H)
+            love.graphics.setColor(FATE_ROW_BORDER_COLOR)
+            love.graphics.rectangle("line", row_x, y, row_w, FATE_ROW_H)
+
+            love.graphics.setColor(getFateValueColor(entry))
+            love.graphics.print(entry.value_text, row_x + 14, y + 5)
+
+            love.graphics.setColor(TEXT_COLOR)
+            love.graphics.printf("x" .. tostring(entry.quantity), row_x + row_w - 58, y + 5, 44, "right")
+        end
+    end
+end
+
 local function drawFateDeckWindow(unit, layout)
     local deck = fate_logic.getAgentDeck(unit)
+    local discard = fate_logic.getAgentDiscard(unit)
     local section_h = (layout.deck_h - FATE_SECTION_GAP) / 2
     local deck_section_x = layout.deck_x
     local deck_section_y = layout.deck_y
     local discard_section_x = layout.deck_x
     local discard_section_y = layout.deck_y + section_h + FATE_SECTION_GAP
-    local row_x = deck_section_x + MODAL_PAD
-    local row_y = deck_section_y + MODAL_PAD
-    local row_w = layout.deck_w - MODAL_PAD * 2
     local previous_font = love.graphics.getFont()
 
     if not fate_font then
@@ -382,22 +403,8 @@ local function drawFateDeckWindow(unit, layout)
     love.graphics.setLineWidth(1)
     love.graphics.setFont(fate_font)
 
-    for index, entry in ipairs(deck) do
-        local y = row_y + (index - 1) * (FATE_ROW_H + FATE_ROW_GAP)
-
-        if y + FATE_ROW_H <= deck_section_y + section_h - MODAL_PAD then
-            love.graphics.setColor(FATE_ROW_COLOR)
-            love.graphics.rectangle("fill", row_x, y, row_w, FATE_ROW_H)
-            love.graphics.setColor(FATE_ROW_BORDER_COLOR)
-            love.graphics.rectangle("line", row_x, y, row_w, FATE_ROW_H)
-
-            love.graphics.setColor(getFateValueColor(entry))
-            love.graphics.print(entry.value_text, row_x + 14, y + 5)
-
-            love.graphics.setColor(TEXT_COLOR)
-            love.graphics.printf("x" .. tostring(entry.quantity), row_x + row_w - 58, y + 5, 44, "right")
-        end
-    end
+    drawFateRows(deck, deck_section_x, deck_section_y, layout.deck_w, section_h)
+    drawFateRows(discard, discard_section_x, discard_section_y, layout.deck_w, section_h)
 
     love.graphics.setFont(previous_font)
 end

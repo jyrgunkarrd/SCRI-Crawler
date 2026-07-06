@@ -1,6 +1,7 @@
 local map_tiles = require("src.rndr.map_tiles")
 local pathfinding = require("src.sys.pathfinding")
 local sfx_logic = require("src.sys.sfx_logic")
+local fate_logic = require("src.sys.fate_logic")
 
 local agent_logic = {
     selected_tile = nil,
@@ -18,6 +19,9 @@ local SHOUT_CHARS_PER_SECOND = 58
 local SHOUT_MIN_TYPE_SECONDS = 0.08
 local SHOUT_HOLD_SECONDS = 0.75
 local MOVE_ANIMATION_SECONDS = 0.18
+local ACTION_DECKS_PATH = "data.action_decks"
+local CARD_INDEX_PATH = "data.cards.index"
+local ACTION_HAND_SIZE = 6
 
 local function pointInPolygon(x, y, points)
     local inside = false
@@ -104,6 +108,95 @@ local function getRuntimeStat(agent, stat_name)
     end
 
     return agent.runtime_stats[stat_name]
+end
+
+local function buildLookup(items)
+    local lookup = {}
+
+    for _, item in ipairs(items or {}) do
+        if item.id then
+            lookup[item.id] = item
+        end
+    end
+
+    return lookup
+end
+
+local function getActionDeckLookup()
+    package.loaded[ACTION_DECKS_PATH] = nil
+
+    local ok, action_decks = pcall(require, ACTION_DECKS_PATH)
+
+    if not ok then
+        print("Unable to load action decks: " .. tostring(action_decks))
+        return {}
+    end
+
+    return buildLookup(action_decks)
+end
+
+local function getCardIndex()
+    package.loaded[CARD_INDEX_PATH] = nil
+
+    local ok, card_index = pcall(require, CARD_INDEX_PATH)
+
+    if not ok then
+        print("Unable to load card index: " .. tostring(card_index))
+        return { byId = {} }
+    end
+
+    return card_index
+end
+
+local function shuffle(cards)
+    for index = #cards, 2, -1 do
+        local swap_index = love.math.random(index)
+
+        cards[index], cards[swap_index] = cards[swap_index], cards[index]
+    end
+end
+
+local function buildActionDrawPile(agent, action_deck_lookup, card_index)
+    local draw_pile = {}
+
+    for _, deck_id in ipairs(agent.actions or {}) do
+        local deck = action_deck_lookup[deck_id]
+
+        if not deck then
+            print("Unknown action deck id: " .. tostring(deck_id))
+        else
+            for _, stack in ipairs(deck.cards or {}) do
+                local card = card_index.byId[stack.slot]
+
+                if not card then
+                    print("Unknown action card id: " .. tostring(stack.slot))
+                else
+                    for _ = 1, math.max(0, math.floor(stack.quantity or 0)) do
+                        draw_pile[#draw_pile + 1] = card
+                    end
+                end
+            end
+        end
+    end
+
+    shuffle(draw_pile)
+
+    return draw_pile
+end
+
+local function drawActionCards(agent, count)
+    agent.action_hand = agent.action_hand or {}
+    agent.action_draw_pile = agent.action_draw_pile or {}
+
+    for _ = 1, count do
+        local card = table.remove(agent.action_draw_pile)
+
+        if not card then
+            return
+        end
+
+        agent.action_hand[#agent.action_hand + 1] = card
+    end
 end
 
 local function isOccupiedDestination(tile, selected_tile)
@@ -442,6 +535,29 @@ function agent_logic.ensureRuntimeStats(agent)
     getRuntimeStat(agent, "ap")
     getRuntimeStat(agent, "hp")
     getRuntimeStat(agent, "lp")
+    fate_logic.initializeFateDeck(agent)
+end
+
+function agent_logic.initializeActionHand(agent, action_deck_lookup, card_index)
+    if not agent then
+        return
+    end
+
+    action_deck_lookup = action_deck_lookup or getActionDeckLookup()
+    card_index = card_index or getCardIndex()
+
+    agent.action_draw_pile = buildActionDrawPile(agent, action_deck_lookup, card_index)
+    agent.action_hand = {}
+    drawActionCards(agent, ACTION_HAND_SIZE)
+end
+
+function agent_logic.initializeActionHands(agents)
+    local action_deck_lookup = getActionDeckLookup()
+    local card_index = getCardIndex()
+
+    for _, agent in ipairs(agents or {}) do
+        agent_logic.initializeActionHand(agent, action_deck_lookup, card_index)
+    end
 end
 
 function agent_logic.ensureEnemyRuntimeStats(enemy)

@@ -8,14 +8,14 @@ local basic_cards = {
         name = "Attack",
         cost = 1,
         rarity = "common",
-        tags = {
+        textbox = "Deal 3 damage to an enemy.",
+        play_func = {
 
-            "Placeholder",
-            "Mockup",
+            targ = "enemy",
+            dmg = "3",
+            rng = "1",
 
         },
-        textbox = "This is placeholder text.",
-        flavor = "This is placeholder text.",
     },
 
 }
