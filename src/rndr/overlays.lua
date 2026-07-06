@@ -19,6 +19,8 @@ local ZOC_ALPHA_BASE = 0.70
 local ZOC_ALPHA_PULSE = 0.14
 local CARD_RANGE_ALPHA = 0.62
 local CARD_TARGET_ALPHA = 0.82
+local OVERLAY_OUTLINE_COLOR = { 0, 0, 0, 0.92 }
+local OVERLAY_OUTLINE_W = 3
 local GHOST_ALPHA = 0.48
 local GHOST_RADIUS = 42
 local COST_BOX_PAD_X = 8
@@ -113,6 +115,10 @@ local function drawStableHighlight(points, color, alpha)
     love.graphics.polygon("fill", points)
     love.graphics.setColor(color[1], color[2], color[3], alpha)
     love.graphics.polygon("fill", points)
+    love.graphics.setColor(OVERLAY_OUTLINE_COLOR)
+    love.graphics.setLineWidth(OVERLAY_OUTLINE_W)
+    love.graphics.polygon("line", points)
+    love.graphics.setLineWidth(1)
 end
 
 function overlays.drawDoors(room, camera_x, camera_y)

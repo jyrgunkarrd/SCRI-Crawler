@@ -39,7 +39,7 @@ local agents = {
             
             { cardid = "ATK", art = "MAM_ATK" },
         
-        }
+        },
         shout_select = "As a river bends.",
 
     },
@@ -223,7 +223,7 @@ local agents = {
             
             { cardid = "ATK", art = "B6_ATK" },
         
-        }
+        },
         shout_select = "They're dead already.",
 
     },
@@ -263,7 +263,7 @@ local agents = {
             
             { cardid = "ATK", art = "TMW_ATK" },
         
-        }
+        },
         shout_select = "Good news?",
 
     },

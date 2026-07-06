@@ -156,8 +156,34 @@ local function shuffle(cards)
     end
 end
 
+local function cloneCardForAgent(card, art_id)
+    local clone = {}
+
+    for key, value in pairs(card) do
+        clone[key] = value
+    end
+
+    clone.base_id = card.id
+    clone.art_id = art_id
+
+    return clone
+end
+
+local function getActionArtLookup(agent)
+    local lookup = {}
+
+    for _, override in ipairs(agent.actions_art or {}) do
+        if override.cardid and override.art then
+            lookup[override.cardid] = override.art
+        end
+    end
+
+    return lookup
+end
+
 local function buildActionDrawPile(agent, action_deck_lookup, card_index)
     local draw_pile = {}
+    local action_art = getActionArtLookup(agent)
 
     for _, deck_id in ipairs(agent.actions or {}) do
         local deck = action_deck_lookup[deck_id]
@@ -172,7 +198,7 @@ local function buildActionDrawPile(agent, action_deck_lookup, card_index)
                     print("Unknown action card id: " .. tostring(stack.slot))
                 else
                     for _ = 1, math.max(0, math.floor(stack.quantity or 0)) do
-                        draw_pile[#draw_pile + 1] = card
+                        draw_pile[#draw_pile + 1] = cloneCardForAgent(card, action_art[card.id])
                     end
                 end
             end

@@ -158,6 +158,10 @@ local function getRarityLabelHeight()
 end
 
 local function findCardImagePath(card_id)
+    if not card_id then
+        return nil
+    end
+
     for _, extension in ipairs(CARD_IMAGE_EXTENSIONS) do
         local path = ("assets/images/cards/%s.%s"):format(card_id, extension)
 
@@ -169,23 +173,42 @@ local function findCardImagePath(card_id)
     return nil
 end
 
+local function getCardImageId(card)
+    return card and (card.art_id or card.art or card.id) or nil
+end
+
 local function getCardImage(card)
+    local image_id = getCardImageId(card)
+
     if not card or not card.id then
         return nil
     end
 
-    if card_images[card.id] then
-        return card_images[card.id]
+    if card_images[image_id] then
+        return card_images[image_id]
     end
 
-    if missing_images[card.id] then
+    if missing_images[image_id] then
+        if image_id ~= card.id then
+            return getCardImage({
+                id = card.id,
+            })
+        end
+
         return nil
     end
 
-    local path = findCardImagePath(card.id)
+    local path = findCardImagePath(image_id)
 
     if not path then
-        missing_images[card.id] = true
+        missing_images[image_id] = true
+
+        if image_id ~= card.id then
+            return getCardImage({
+                id = card.id,
+            })
+        end
+
         return nil
     end
 
@@ -193,11 +216,18 @@ local function getCardImage(card)
 
     if not ok then
         print("Unable to load card image '" .. path .. "': " .. tostring(image))
-        missing_images[card.id] = true
+        missing_images[image_id] = true
+
+        if image_id ~= card.id then
+            return getCardImage({
+                id = card.id,
+            })
+        end
+
         return nil
     end
 
-    card_images[card.id] = image
+    card_images[image_id] = image
 
     return image
 end

@@ -64,9 +64,9 @@ local fate_font
 local modal_unit = nil
 local modal_kind = nil
 local STAT_COLORS = {
-    ap = { 0.8431, 0.9098, 0.0039, 1 },
+    ap = { 1, 1, 1, 1 },
     hp = { 1, 0.2902, 0.4941, 1 },
-    lp = { 0.6745, 0.9725, 0.9882, 1 },
+    lp = { 0.1412, 0.8157, 1, 1 },
     atk = { 0.9961, 0.3373, 0.1765, 1 },
 }
 local AGENT_STAT_ORDER = {
