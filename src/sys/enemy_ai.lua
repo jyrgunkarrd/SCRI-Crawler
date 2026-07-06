@@ -1,5 +1,7 @@
 local fate_logic = require("src.sys.fate_logic")
 local pathfinding = require("src.sys.pathfinding")
+local map_tiles = require("src.rndr.map_tiles")
+local burn_logic = require("src.sys.burn_logic")
 
 local enemy_ai = {}
 
@@ -199,25 +201,37 @@ local function getActionId(action)
     return action.id or action.act or action.act1 or action[1]
 end
 
-local function applyDamage(target, damage)
+local function applyDamage(room, target, damage)
+    if damage <= 0 then
+        return false, false, false, true
+    end
+
     local hp = getRuntimeStat(target, "hp")
     local previous = hp.current
 
     hp.current = math.max(0, hp.current - damage)
+    local damaged = hp.current < previous
 
-    return hp.current < previous, hp.current <= 0
+    if hp.current <= 0 then
+        local survived_burn = burn_logic.resolveHpCollapse(target, room, { play_elimination_sound = false })
+
+        return damaged, not survived_burn, survived_burn, false
+    end
+
+    return damaged, false, false, false
 end
 
 local function removeEliminatedAgent(room, agent)
     for _, tile in ipairs(room and room.tiles or {}) do
         if tile.agent == agent then
+            map_tiles.startAgentElimination(agent, tile, { play_sound = false })
             tile.agent = nil
             return
         end
     end
 end
 
-local function buildAttackEvent(enemy, target, action, damage, fate_card, damaged, eliminated)
+local function buildAttackEvent(enemy, target, action, damage, fate_card, damaged, eliminated, burned, blocked)
     local action_id = getActionId(action)
 
     return {
@@ -234,6 +248,8 @@ local function buildAttackEvent(enemy, target, action, damage, fate_card, damage
         damage = damage,
         damaged = damaged,
         eliminated = eliminated,
+        burned = burned,
+        blocked = blocked,
         failed = fate_card and fate_card.fail or false,
     }
 end
@@ -285,9 +301,9 @@ function enemy_ai.takeNextAction(room)
 
             local action = chooseAction(enemy)
             local base_damage = getStatValue(enemy, "atk") + math.max(0, tonumber(action and action.dmg) or 0)
-            local damage, fate_card = fate_logic.applyDamageModifier(enemy, base_damage)
-            local damaged, eliminated = applyDamage(target_tile.agent, damage)
             local target = target_tile.agent
+            local damage, fate_card = fate_logic.applyDamageModifier(enemy, base_damage)
+            local damaged, eliminated, burned, blocked = applyDamage(room, target, damage)
 
             if eliminated then
                 removeEliminatedAgent(room, target)
@@ -295,7 +311,7 @@ function enemy_ai.takeNextAction(room)
 
             enemy.exhausted = true
 
-            local event = buildAttackEvent(enemy, target, action, damage, fate_card, damaged, eliminated)
+            local event = buildAttackEvent(enemy, target, action, damage, fate_card, damaged, eliminated, burned, blocked)
 
             if movement_animation then
                 pending_attack_event = event

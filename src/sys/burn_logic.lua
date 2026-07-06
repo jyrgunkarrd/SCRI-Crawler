@@ -1,4 +1,5 @@
 local action_deck_logic = require("src.sys.action_deck_logic")
+local map_tiles = require("src.rndr.map_tiles")
 
 local burn_logic = {}
 
@@ -46,11 +47,14 @@ local function fatigueEligibleSlots(agent)
     end
 end
 
-local function eliminateAgent(agent, room)
+local function eliminateAgent(agent, room, options)
     agent.eliminated = true
 
     for _, tile in ipairs(room and room.tiles or {}) do
         if tile.agent == agent then
+            map_tiles.startAgentElimination(agent, tile, {
+                play_sound = not options or options.play_elimination_sound ~= false,
+            })
             tile.agent = nil
             return true
         end
@@ -69,6 +73,16 @@ local function hasAvailableDrawCard(agent)
     return false
 end
 
+local function getHpRuntime(agent)
+    if not agent then
+        return nil
+    end
+
+    agent.runtime_stats = agent.runtime_stats or {}
+
+    return agent.runtime_stats.hp
+end
+
 function burn_logic.getBurnLevel(agent)
     return math.max(0, math.floor(tonumber(agent and agent.burn_level) or 0))
 end
@@ -82,7 +96,7 @@ function burn_logic.initializeAgent(agent)
     agent.fatigued_slots = {}
 end
 
-function burn_logic.accumulateBurn(agent, room)
+function burn_logic.accumulateBurn(agent, room, options)
     if not agent then
         return false, "missing_agent"
     end
@@ -90,7 +104,7 @@ function burn_logic.accumulateBurn(agent, room)
     local current_burn = burn_logic.getBurnLevel(agent)
 
     if current_burn >= MAX_BURN_LEVEL then
-        eliminateAgent(agent, room)
+        eliminateAgent(agent, room, options)
         return false, "eliminated"
     end
 
@@ -102,7 +116,7 @@ function burn_logic.accumulateBurn(agent, room)
     return true, "burned"
 end
 
-function burn_logic.drawCards(agent, room, count)
+function burn_logic.drawCards(agent, room, count, options)
     if not agent then
         return 0, "missing_agent"
     end
@@ -117,7 +131,7 @@ function burn_logic.drawCards(agent, room, count)
 
     while drawn < needed do
         if not hasAvailableDrawCard(agent) then
-            local ok, reason = burn_logic.accumulateBurn(agent, room)
+            local ok, reason = burn_logic.accumulateBurn(agent, room, options)
 
             if not ok then
                 return drawn, reason
@@ -130,7 +144,7 @@ function burn_logic.drawCards(agent, room, count)
         local card = action_deck_logic.drawOneAvailableCard(agent)
 
         if not card then
-            local ok, reason = burn_logic.accumulateBurn(agent, room)
+            local ok, reason = burn_logic.accumulateBurn(agent, room, options)
 
             if not ok then
                 return drawn, reason
@@ -146,14 +160,45 @@ function burn_logic.drawCards(agent, room, count)
     return drawn, "drawn"
 end
 
-function burn_logic.drawHand(agent, room, hand_size)
+function burn_logic.drawHand(agent, room, hand_size, options)
     if not agent then
         return 0, "missing_agent"
     end
 
     agent.action_hand = {}
 
-    return burn_logic.drawCards(agent, room, hand_size or HAND_SIZE)
+    return burn_logic.drawCards(agent, room, hand_size or HAND_SIZE, options)
+end
+
+function burn_logic.resolveHpCollapse(agent, room, options)
+    if not agent then
+        return false, "missing_agent"
+    end
+
+    if burn_logic.getBurnLevel(agent) >= 4 then
+        eliminateAgent(agent, room, options)
+        return false, "eliminated"
+    end
+
+    local ok, reason = burn_logic.accumulateBurn(agent, room, options)
+
+    if not ok then
+        return false, reason
+    end
+
+    local _, draw_reason = burn_logic.drawHand(agent, room, HAND_SIZE, options)
+
+    if draw_reason == "eliminated" then
+        return false, draw_reason
+    end
+
+    local hp = getHpRuntime(agent)
+
+    if hp and hp.maximum then
+        hp.current = hp.maximum
+    end
+
+    return true, "burned"
 end
 
 return burn_logic

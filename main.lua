@@ -321,6 +321,7 @@ function love.load()
     triggerPlayerRoomSpawns(room)
     agent_logic.clearSelection()
     deck_hand_vis.load()
+    map_tiles.clearAnimations()
     phase_rules.load()
     camera.reset()
 end
@@ -337,6 +338,7 @@ function love.update(dt)
 
     agent_logic.update(dt, room, camera_x, camera_y, agent_uix.isModalOpen() or not mission_phase)
     triggerPlayerRoomSpawns(room)
+    map_tiles.update(dt)
     action_vis.update(dt)
     enemy_ai.update(dt)
 
@@ -439,6 +441,7 @@ function love.keypressed(key)
         event_spawn.initialize(room)
         triggerPlayerRoomSpawns(room)
         deck_hand_vis.reload()
+        map_tiles.clearAnimations()
         phase_rules.load()
         camera.reset()
     elseif key == "space" then

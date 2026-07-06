@@ -1,5 +1,7 @@
 local map_tiles = {}
 local image_loader = require("src.assets.image_loader")
+local burn_palette = require("data.burn_palette")
+local sfx_logic = require("src.sys.sfx_logic")
 
 local HEX_SIZE = 54
 local SQRT_3 = math.sqrt(3)
@@ -20,10 +22,27 @@ local SHOUT_BOX_H = 34
 local SHOUT_BOX_PAD_X = 10
 local SHOUT_BOX_PAD_Y = 4
 local MOVE_EASE_OVERSHOOT = 1.04
+local ELIMINATION_ANIMATION_SECONDS = 0.55
+local ELIMINATION_MIN_SCALE = 0.72
 local agent_portraits = {}
 local missing_agent_portraits = {}
 local enemy_portraits = {}
 local missing_enemy_portraits = {}
+local agent_eliminations = {}
+local agent_elimination_sound_played = false
+
+local function hexToColor(hex, alpha)
+    if type(hex) ~= "string" or #hex < 6 then
+        return { 1, 1, 1, alpha or 1 }
+    end
+
+    return {
+        tonumber(hex:sub(1, 2), 16) / 255,
+        tonumber(hex:sub(3, 4), 16) / 255,
+        tonumber(hex:sub(5, 6), 16) / 255,
+        alpha or 1,
+    }
+end
 
 local function axialToPixel(q, r)
     return HEX_SIZE * SQRT_3 * (q + r / 2), HEX_SIZE * 1.5 * r
@@ -255,6 +274,43 @@ local function drawMovingPortrait(unit, kind, center_x, center_y)
     end
 end
 
+local function drawAgentEliminations(offset_x, offset_y)
+    for index = #agent_eliminations, 1, -1 do
+        local animation = agent_eliminations[index]
+        local image = getAgentPortrait(animation.agent)
+
+        if not image then
+            table.remove(agent_eliminations, index)
+        else
+            local progress = math.min(animation.elapsed / ELIMINATION_ANIMATION_SECONDS, 1)
+            local x, y = axialToPixel(animation.q, animation.r)
+            local center_x = x + offset_x
+            local center_y = y + offset_y
+            local alpha = progress < 0.22 and 1 or 1 - ((progress - 0.22) / 0.78)
+            local scale = 1 - (1 - ELIMINATION_MIN_SCALE) * progress
+            local color_index = 2 + math.min(3, math.floor(progress * 8) % 4)
+            local color = hexToColor(burn_palette["burn" .. tostring(color_index)], math.max(0, alpha))
+
+            if progress > 0.42 then
+                local fade = (progress - 0.42) / 0.58
+
+                color[1] = color[1] * (1 - fade)
+                color[2] = color[2] * (1 - fade)
+                color[3] = color[3] * (1 - fade)
+            end
+
+            drawHexPortrait(
+                image,
+                center_x,
+                center_y,
+                PORTRAIT_RADIUS * scale,
+                color,
+                { 0, 0, 0, math.max(0, alpha) }
+            )
+        end
+    end
+end
+
 local function easeOutBack(t)
     local overshoot = MOVE_EASE_OVERSHOOT
     local shifted = t - 1
@@ -330,7 +386,50 @@ function map_tiles.drawPortraits(room, camera_x, camera_y, selected_tile, moving
         end
     end
 
+    drawAgentEliminations(offset_x, offset_y)
+
     love.graphics.setColor(1, 1, 1, 1)
+end
+
+function map_tiles.update(dt)
+    agent_elimination_sound_played = false
+
+    for index = #agent_eliminations, 1, -1 do
+        local animation = agent_eliminations[index]
+
+        animation.elapsed = animation.elapsed + dt
+
+        if animation.elapsed >= ELIMINATION_ANIMATION_SECONDS then
+            table.remove(agent_eliminations, index)
+        end
+    end
+end
+
+function map_tiles.startAgentElimination(agent, tile, options)
+    if not agent or not tile then
+        return false
+    end
+
+    agent_eliminations[#agent_eliminations + 1] = {
+        agent = agent,
+        q = tile.q,
+        r = tile.r,
+        elapsed = 0,
+    }
+
+    options = options or {}
+
+    if options.play_sound ~= false and not agent_elimination_sound_played then
+        sfx_logic.playNamed("agent_ko")
+        agent_elimination_sound_played = true
+    end
+
+    return true
+end
+
+function map_tiles.clearAnimations()
+    agent_eliminations = {}
+    agent_elimination_sound_played = false
 end
 
 function map_tiles.drawMovingAgent(room, camera_x, camera_y, animation)

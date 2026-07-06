@@ -3,6 +3,7 @@ local agent_logic = require("src.sys.agent_logic")
 local pathfinding = require("src.sys.pathfinding")
 local fate_logic = require("src.sys.fate_logic")
 local action_deck_logic = require("src.sys.action_deck_logic")
+local burn_logic = require("src.sys.burn_logic")
 
 local card_play = {
     drag = nil,
@@ -159,6 +160,7 @@ local function eliminateTarget(room, target_tile, target_unit)
             agent_logic.clearSelection()
         end
     elseif target_tile.agent == target_unit then
+        map_tiles.startAgentElimination(target_unit, target_tile, { play_sound = false })
         target_tile.agent = nil
         agent_logic.clearSelection()
     end
@@ -169,6 +171,8 @@ local function damageTarget(room, target_tile, target_unit, damage)
         return {
             damaged = false,
             eliminated = false,
+            burned = false,
+            blocked = target_unit ~= nil,
         }
     end
 
@@ -178,12 +182,25 @@ local function damageTarget(room, target_tile, target_unit, damage)
     hp.current = math.max(0, hp.current - damage)
 
     if hp.current <= 0 then
+        if target_tile.agent == target_unit then
+            local survived_burn = burn_logic.resolveHpCollapse(target_unit, room, { play_elimination_sound = false })
+
+            return {
+                damaged = was_alive and damage > 0,
+                eliminated = not survived_burn,
+                burned = survived_burn,
+                blocked = false,
+            }
+        end
+
         eliminateTarget(room, target_tile, target_unit)
     end
 
     return {
         damaged = was_alive and damage > 0,
         eliminated = was_alive and hp.current <= 0,
+        burned = false,
+        blocked = false,
     }
 end
 
@@ -294,6 +311,8 @@ function card_play.release(room, x, y, camera_x, camera_y)
         damage = damage,
         damaged = result.damaged,
         eliminated = result.eliminated,
+        burned = result.burned,
+        blocked = result.blocked,
         failed = fate_card and fate_card.fail or false,
     }
 end

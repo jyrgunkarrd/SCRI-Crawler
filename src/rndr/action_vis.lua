@@ -1,6 +1,7 @@
 local card_vis = require("src.rndr.card_vis")
 local image_loader = require("src.assets.image_loader")
 local sfx_logic = require("src.sys.sfx_logic")
+local burn_palette = require("data.burn_palette")
 
 local action_vis = {}
 
@@ -22,6 +23,14 @@ local MISS_SOUND_T = 0.78
 local IMPACT_DURATION = 0.28
 local FALL_DURATION = 0.62
 local HOLD_DURATION = 0.22
+local BURN_PULSE_DURATION = 0.58
+local BURN_RING_START_RADIUS = 126
+local BURN_RING_END_RADIUS = 206
+local BURN_RING_WIDTH = 7
+local BURN_RING_SEGMENTS = 96
+local BLOCK_RING_COLOR = { 0.78, 0.80, 0.84 }
+local CRIT_RING_COLOR_A = { 0.9961, 0, 0.4353 }
+local CRIT_RING_COLOR_B = { 0.6745, 0.9725, 0.9882 }
 
 local active = nil
 local full_images = {}
@@ -29,6 +38,17 @@ local missing_full_images = {}
 
 local function clamp01(value)
     return math.max(0, math.min(value, 1))
+end
+
+local function hexToColor(hex, alpha)
+    if type(hex) ~= "string" or #hex < 6 then
+        return 1, 1, 1, alpha or 1
+    end
+
+    return tonumber(hex:sub(1, 2), 16) / 255,
+        tonumber(hex:sub(3, 4), 16) / 255,
+        tonumber(hex:sub(5, 6), 16) / 255,
+        alpha or 1
 end
 
 local function easeOutCubic(t)
@@ -140,6 +160,66 @@ local function drawUnitImage(unit, kind, center_x, center_y, height, rotation, a
     )
 end
 
+local function drawPulseRing(t, center_x, center_y, red, green, blue)
+    local pulse = easeOutCubic(t)
+    local radius = BURN_RING_START_RADIUS + (BURN_RING_END_RADIUS - BURN_RING_START_RADIUS) * pulse
+    local alpha = 1 - t
+
+    love.graphics.setColor(red, green, blue, 0.22 * alpha)
+    love.graphics.circle("fill", center_x, center_y, radius * 0.72, BURN_RING_SEGMENTS)
+    love.graphics.setColor(red, green, blue, 0.92 * alpha)
+    love.graphics.setLineWidth(BURN_RING_WIDTH)
+    love.graphics.circle("line", center_x, center_y, radius, BURN_RING_SEGMENTS)
+    love.graphics.setLineWidth(1)
+end
+
+local function getCritRingColor(t)
+    local mix = 0.5 + math.sin(t * math.pi * 4) * 0.5
+
+    return CRIT_RING_COLOR_A[1] * (1 - mix) + CRIT_RING_COLOR_B[1] * mix,
+        CRIT_RING_COLOR_A[2] * (1 - mix) + CRIT_RING_COLOR_B[2] * mix,
+        CRIT_RING_COLOR_A[3] * (1 - mix) + CRIT_RING_COLOR_B[3] * mix
+end
+
+local function getBurnRingColor(t)
+    local palette_index = 2 + math.min(3, math.floor(t * 8) % 4)
+
+    return hexToColor(burn_palette["burn" .. tostring(palette_index)], 1)
+end
+
+local function drawImpactPulse(animation, center_x, center_y)
+    if (not animation.burned and not animation.blocked and not animation.crit) or animation.failed then
+        return
+    end
+
+    local pulse_t = clamp01((animation.elapsed - animation.impact_start) / BURN_PULSE_DURATION)
+
+    if pulse_t <= 0 or pulse_t >= 1 then
+        return
+    end
+
+    local red, green, blue
+
+    if animation.crit and animation.burned then
+        if pulse_t < 0.5 then
+            red, green, blue = getCritRingColor(pulse_t * 2)
+            drawPulseRing(pulse_t * 2, center_x, center_y, red, green, blue)
+        else
+            red, green, blue = getBurnRingColor((pulse_t - 0.5) * 2)
+            drawPulseRing((pulse_t - 0.5) * 2, center_x, center_y, red, green, blue)
+        end
+        return
+    elseif animation.crit then
+        red, green, blue = getCritRingColor(pulse_t)
+    elseif animation.blocked then
+        red, green, blue = BLOCK_RING_COLOR[1], BLOCK_RING_COLOR[2], BLOCK_RING_COLOR[3]
+    else
+        red, green, blue = getBurnRingColor(pulse_t)
+    end
+
+    drawPulseRing(pulse_t, center_x, center_y, red, green, blue)
+end
+
 local function getLayout()
     local screen_w = love.graphics.getWidth()
     local screen_h = love.graphics.getHeight()
@@ -240,6 +320,9 @@ function action_vis.start(event)
         total_duration = SLIDE_DURATION - PROJECTILE_OVERLAP + PROJECTILE_DURATION + math.max(IMPACT_DURATION + HOLD_DURATION, FALL_DURATION),
         damaged = event.damaged,
         eliminated = event.eliminated,
+        burned = event.burned,
+        blocked = event.blocked,
+        crit = event.fate_card and event.fate_card.crit,
         failed = event.failed,
         impact_sfx_played = false,
         miss_sfx_played = false,
@@ -265,6 +348,13 @@ function action_vis.update(dt)
     if not active.failed and not active.impact_sfx_played and active.elapsed >= active.impact_start then
         if active.eliminated then
             sfx_logic.playNamed("destroy")
+            if active.event.target_kind == "agent" then
+                sfx_logic.playNamed("agent_ko")
+            end
+        elseif active.blocked then
+            sfx_logic.playNamed("block")
+        elseif active.crit and active.damaged then
+            sfx_logic.playNamed("crit")
         elseif active.damaged then
             sfx_logic.playNamed("dmg")
         end
@@ -291,6 +381,8 @@ function action_vis.draw()
     local agent_x = getAgentX(active, layout)
     local target_jitter_x, target_jitter_y = getTargetJitter(active)
     local target_rotation, _, target_fall_y = getTargetFall(active)
+    local target_x = layout.target_x + target_jitter_x
+    local target_y = layout.center_y + target_jitter_y + target_fall_y
 
     love.graphics.setColor(BACKDROP_COLOR)
     love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
@@ -298,12 +390,13 @@ function action_vis.draw()
     drawUnitImage(
         event.target,
         event.target_kind,
-        layout.target_x + target_jitter_x,
-        layout.center_y + target_jitter_y + target_fall_y,
+        target_x,
+        target_y,
         IMAGE_H,
         target_rotation,
         1
     )
+    drawImpactPulse(active, target_x, target_y)
     drawUnitImage(event.agent, event.agent_kind or "agent", agent_x, layout.center_y + 8, IMAGE_H, 0, 1)
 
     if active.elapsed >= active.projectile_start then
@@ -311,7 +404,7 @@ function action_vis.draw()
         local card_x, card_y = getProjectilePosition(active, layout, projectile_t, active.failed)
         local rotation = (projectile_t * math.pi * 2.4)
 
-        if not active.failed and (active.damaged or active.eliminated) and active.elapsed > active.impact_start then
+        if not active.failed and (active.damaged or active.eliminated or active.blocked or active.crit) and active.elapsed > active.impact_start then
             local bounce_t = clamp01((active.elapsed - active.impact_start) / IMPACT_DURATION)
             card_x = layout.card_hit_x - 70 * easeOutCubic(bounce_t)
             card_y = layout.card_hit_y - 30 * math.sin(bounce_t * math.pi)

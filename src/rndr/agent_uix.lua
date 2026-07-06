@@ -296,7 +296,7 @@ local function drawBurnClock(agent)
     local previous_line_width = love.graphics.getLineWidth()
     local previous_font = love.graphics.getFont()
     local burn_level = math.max(0, math.floor(tonumber(agent and agent.burn_level) or 0))
-    local filled_segments = math.max(0, math.min(BURN_CLOCK_SEGMENTS, burn_level - 1))
+    local filled_segments = math.max(0, math.min(BURN_CLOCK_SEGMENTS, burn_level))
 
     if not burn_clock_font then
         burn_clock_font = love.graphics.newFont("assets/fonts/Furore.otf", BURN_CLOCK_FONT_SIZE)
