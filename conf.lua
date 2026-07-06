@@ -31,5 +31,5 @@ function love.conf(t)
     end
 
     t.window.vsync = 1
-    t.window.msaa = 0
+    t.window.msaa = 4
 end

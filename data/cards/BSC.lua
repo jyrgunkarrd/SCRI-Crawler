@@ -8,7 +8,7 @@ local basic_cards = {
         name = "Attack",
         cost = 1,
         rarity = "common",
-        textbox = "Deal 3 damage to an enemy.",
+        textbox = "Deal 3 damage to an enemy.\n\nRange 1.",
         play_func = {
 
             targ = "enemy",

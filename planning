@@ -29,3 +29,37 @@ To do that, we just need to set-up characters, their modifier decks, their actio
 ...Okay. 
 
 Now we need to set-up test enemies and build the combat system. 
+
+
+
+Okay. Card basics and combat visuals are ready. 
+
+Now we need the turn and phase structure, and enemy actions. 
+
+
+...Do we want levels to have escalation? 
+
+No,  we don't. No in-mission escalation per se. We just handle escalation on the meta layer. The only escalation that occurs is that missions do get trickier as you go further into the heart of the map - but that is a mission design challenge, not a hard mechanic. 
+
+
+What we need right now is a 5-segment fatigue clock for Agents and a phase / round tracker. Fatigue will be called Burn. 
+
+
+
+Okay; we want a fatigue system. Cards are burned out of slots every cycle:
+
+Fatigue 1 - 18 slots
+Fatigue 2 - 12 slots
+Fatigue 3 - 12 slots
+Fatigue 4 - 12 slots 
+Fatigue 5 - 6 slots
+
+...I think we can tie HP into this system too. 
+
+Going to 0 HP just causes a deck fatigue level to be lost, burning away those cards and refilling health. 
+
+
+...We could also have completely bullshit horrible enemies that can directly inflict fatigue to the player... 
+
+
+

@@ -10,6 +10,7 @@ local ENEMY_PORTRAIT_DIR = "assets/images/enemy"
 local PORTRAIT_RADIUS = HEX_SIZE * 0.78
 local PORTRAIT_OUTLINE_COLOR = { 0.015, 0.012, 0.01, 1 }
 local ENEMY_PORTRAIT_OUTLINE_COLOR = { 0.6118, 0, 0.0431, 1 }
+local ENEMY_PORTRAIT_OUTLINE_INSET = 5
 local EXHAUSTED_PORTRAIT_COLOR = { 0.34, 0.34, 0.34, 0.72 }
 local SELECTED_PULSE_SPEED = 3.6
 local SELECTED_PULSE_AMOUNT = 0.075
@@ -139,7 +140,7 @@ local function getAgentCurrentAp(agent)
     return agent.runtime_stats.ap.current
 end
 
-local function drawHexPortrait(image, center_x, center_y, radius, color, outline_color)
+local function drawHexPortrait(image, center_x, center_y, radius, color, outline_color, inset_outline_radius, outer_outline_color)
     local points = buildHexPoints(center_x, center_y, radius)
     local scale = (radius * 2) / math.min(image:getWidth(), image:getHeight())
 
@@ -161,9 +162,15 @@ local function drawHexPortrait(image, center_x, center_y, radius, color, outline
     )
     love.graphics.setStencilTest()
 
-    love.graphics.setColor(outline_color)
     love.graphics.setLineWidth(3)
-    love.graphics.polygon("line", points)
+
+    if outer_outline_color then
+        love.graphics.setColor(outer_outline_color)
+        love.graphics.polygon("line", points)
+    end
+
+    love.graphics.setColor(outline_color)
+    love.graphics.polygon("line", inset_outline_radius and buildHexPoints(center_x, center_y, inset_outline_radius) or points)
     love.graphics.setLineWidth(1)
 end
 
@@ -205,7 +212,16 @@ local function drawEnemyPortraitTile(tile, center_x, center_y)
         return
     end
 
-    drawHexPortrait(image, center_x, center_y, PORTRAIT_RADIUS, { 1, 1, 1, 1 }, ENEMY_PORTRAIT_OUTLINE_COLOR)
+    drawHexPortrait(
+        image,
+        center_x,
+        center_y,
+        PORTRAIT_RADIUS,
+        { 1, 1, 1, 1 },
+        ENEMY_PORTRAIT_OUTLINE_COLOR,
+        PORTRAIT_RADIUS - ENEMY_PORTRAIT_OUTLINE_INSET,
+        PORTRAIT_OUTLINE_COLOR
+    )
 end
 
 local function drawMovingPortrait(agent, center_x, center_y)

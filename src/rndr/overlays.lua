@@ -11,12 +11,9 @@ local DOOR_RADIUS = 14
 local MOVE_COLOR = { 1, 1, 1, 1 }
 local ZOC_COLOR = { 0.6118, 0, 0.0431, 1 }
 local CARD_TARGET_COLOR = { 1, 0.2902, 0.4902, 1 }
-local MOVE_PULSE_SPEED = 3.2
 local OVERLAY_BACKING_COLOR = { 0, 0, 0, 0.58 }
-local MOVE_ALPHA_BASE = 0.62
-local MOVE_ALPHA_PULSE = 0.14
-local ZOC_ALPHA_BASE = 0.70
-local ZOC_ALPHA_PULSE = 0.14
+local MOVE_ALPHA = 1
+local ZOC_ALPHA = 1
 local CARD_RANGE_ALPHA = 0.62
 local CARD_TARGET_ALPHA = 0.82
 local OVERLAY_OUTLINE_COLOR = { 0, 0, 0, 0.92 }
@@ -191,7 +188,6 @@ function overlays.drawMovementRange(room, camera_x, camera_y, movement_range)
     end
 
     local offset_x, offset_y = getDrawOffset(room, camera_x, camera_y)
-    local pulse = (math.sin(love.timer.getTime() * MOVE_PULSE_SPEED) + 1) / 2
 
     for _, entry in pairs(movement_range) do
         local x, y = map_tiles.axialToPixel(entry.tile.q, entry.tile.r)
@@ -199,7 +195,7 @@ function overlays.drawMovementRange(room, camera_x, camera_y, movement_range)
         drawStableHighlight(
             map_tiles.buildHexPoints(x + offset_x, y + offset_y),
             MOVE_COLOR,
-            MOVE_ALPHA_BASE + MOVE_ALPHA_PULSE * pulse
+            MOVE_ALPHA
         )
     end
 
@@ -214,7 +210,6 @@ function overlays.drawEnemyZonesOfControl(room, camera_x, camera_y, movement_ran
     local offset_x, offset_y = getDrawOffset(room, camera_x, camera_y)
     local lookup = buildTileLookup(room)
     local highlighted = {}
-    local pulse = (math.sin(love.timer.getTime() * MOVE_PULSE_SPEED) + 1) / 2
 
     for _, tile in ipairs(room.tiles) do
         if tile.enemy then
@@ -227,7 +222,7 @@ function overlays.drawEnemyZonesOfControl(room, camera_x, camera_y, movement_ran
                     drawStableHighlight(
                         map_tiles.buildHexPoints(x + offset_x, y + offset_y),
                         ZOC_COLOR,
-                        ZOC_ALPHA_BASE + ZOC_ALPHA_PULSE * pulse
+                        ZOC_ALPHA
                     )
                     highlighted[key] = true
                 end

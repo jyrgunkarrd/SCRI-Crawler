@@ -10,6 +10,8 @@ local enemy_min = {
         stats = {
             {hp = 2},
             {atk = 1},
+            {spd = 2},
+            {rng = 1},
         },
         fate = "BSCSTACK",
         enemy = true,

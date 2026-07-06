@@ -10,6 +10,15 @@ local PANEL_Y = 24
 local PANEL_W = 460
 local PANEL_H = 190
 local PANEL_PAD = 18
+local BURN_CLOCK_GAP = 12
+local BURN_CLOCK_SIZE = 135
+local BURN_CLOCK_X = PANEL_X + PANEL_W + BURN_CLOCK_GAP
+local BURN_CLOCK_Y = PANEL_Y + (PANEL_H - BURN_CLOCK_SIZE) / 2
+local BURN_CLOCK_SEGMENTS = 5
+local BURN_CLOCK_CIRCLE_SEGMENTS = 128
+local BURN_CLOCK_OUTER_RADIUS = 58
+local BURN_CLOCK_CENTER_RADIUS = 39
+local BURN_CLOCK_FONT_SIZE = 15
 local PORTRAIT_BOX_SIZE = PANEL_H - PANEL_PAD * 2
 local PORTRAIT_BOX_X = PANEL_X + PANEL_PAD
 local PORTRAIT_BOX_Y = PANEL_Y + PANEL_PAD
@@ -61,6 +70,7 @@ local FATE_FONT_SIZE = 16
 local full_images = {}
 local missing_full_images = {}
 local fate_font
+local burn_clock_font
 local modal_unit = nil
 local modal_kind = nil
 local STAT_COLORS = {
@@ -213,6 +223,51 @@ local function drawPortrait(unit, kind)
     love.graphics.setLineWidth(3)
     love.graphics.polygon("line", points)
     love.graphics.setLineWidth(1)
+end
+
+local function drawBurnClock()
+    local center_x = BURN_CLOCK_X + BURN_CLOCK_SIZE / 2
+    local center_y = BURN_CLOCK_Y + BURN_CLOCK_SIZE / 2
+    local previous_line_width = love.graphics.getLineWidth()
+    local previous_font = love.graphics.getFont()
+
+    if not burn_clock_font then
+        burn_clock_font = love.graphics.newFont("assets/fonts/Furore.otf", BURN_CLOCK_FONT_SIZE)
+    end
+
+    love.graphics.setColor(PANEL_COLOR)
+    love.graphics.rectangle("fill", BURN_CLOCK_X, BURN_CLOCK_Y, BURN_CLOCK_SIZE, BURN_CLOCK_SIZE)
+
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.circle("fill", center_x, center_y, BURN_CLOCK_OUTER_RADIUS, BURN_CLOCK_CIRCLE_SEGMENTS)
+
+    love.graphics.setColor(0, 0, 0, 1)
+    love.graphics.setLineWidth(4)
+
+    for index = 0, BURN_CLOCK_SEGMENTS - 1 do
+        local angle = math.rad(-90 + index * 360 / BURN_CLOCK_SEGMENTS)
+        love.graphics.line(
+            center_x,
+            center_y,
+            center_x + math.cos(angle) * BURN_CLOCK_OUTER_RADIUS,
+            center_y + math.sin(angle) * BURN_CLOCK_OUTER_RADIUS
+        )
+    end
+
+    love.graphics.circle("fill", center_x, center_y, BURN_CLOCK_CENTER_RADIUS, BURN_CLOCK_CIRCLE_SEGMENTS)
+
+    love.graphics.setColor(TEXT_COLOR)
+    love.graphics.setFont(burn_clock_font)
+    local font = burn_clock_font
+    local text = "Burn"
+    love.graphics.print(
+        text,
+        center_x - font:getWidth(text) / 2,
+        center_y - font:getHeight() / 2
+    )
+
+    love.graphics.setFont(previous_font)
+    love.graphics.setLineWidth(previous_line_width)
 end
 
 local function drawStatValue(label, stat, color, index, pending_cost)
@@ -447,6 +502,10 @@ function agent_uix.draw()
     love.graphics.rectangle("fill", PANEL_X, PANEL_Y, PANEL_W, PANEL_H)
 
     drawPortrait(unit, kind)
+
+    if kind == "agent" then
+        drawBurnClock()
+    end
 
     love.graphics.setColor(TEXT_COLOR)
     love.graphics.print(unit.name or unit.id or fallback_label, CONTENT_X, CONTENT_Y)

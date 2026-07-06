@@ -564,6 +564,27 @@ function agent_logic.ensureRuntimeStats(agent)
     fate_logic.initializeFateDeck(agent)
 end
 
+function agent_logic.refreshExhaustedAgents(room)
+    local refreshed = false
+
+    for _, tile in ipairs(room and room.tiles or {}) do
+        if tile.agent then
+            local ap = getRuntimeStat(tile.agent, "ap")
+
+            if ap.maximum > 0 and ap.current <= 0 then
+                ap.current = ap.maximum
+                refreshed = true
+            end
+        end
+    end
+
+    if refreshed then
+        refreshMovementRange(room)
+    end
+
+    return refreshed
+end
+
 function agent_logic.initializeActionHand(agent, action_deck_lookup, card_index)
     if not agent then
         return

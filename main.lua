@@ -107,11 +107,24 @@ local deck_hand_vis = require("src.rndr.deck_hand_vis")
 local event_spawn = require("src.sys.event_spawn")
 local card_play = require("src.sys.card_play")
 local action_vis = require("src.rndr.action_vis")
+local phase_track = require("src.rndr.phase_track")
+local phase_rules = require("src.sys.phase_rules")
+local sfx_logic = require("src.sys.sfx_logic")
 
 local room
 local DEV_MAP_CONFIG_PATH = "data.dev_map"
 local DEV_SQUAD_PATH = "data.dev_squad"
 local AGENTS_PATH = "data.agents"
+
+local function playPhaseStartSfx(phase)
+    if phase == phase_rules.PHASE_MISSION then
+        sfx_logic.playNamed("mission_phase")
+    elseif phase == phase_rules.PHASE_SERMON then
+        if not sfx_logic.playNamed("sermon_phase") then
+            sfx_logic.playNamed("srmon_phase")
+        end
+    end
+end
 
 local function findMapPiece(id)
     for _, piece in ipairs(map_pieces) do
@@ -307,24 +320,39 @@ function love.load()
     triggerPlayerRoomSpawns(room)
     agent_logic.clearSelection()
     deck_hand_vis.load()
+    phase_rules.load()
     camera.reset()
 end
 
 function love.update(dt)
     camera.update(dt, room)
     local camera_x, camera_y = camera.getOffset()
+    local mission_phase = phase_rules.isMissionPhase()
 
-    agent_logic.update(dt, room, camera_x, camera_y, agent_uix.isModalOpen())
+    if phase_rules.isStartPhase() then
+        agent_logic.refreshExhaustedAgents(room)
+    end
+
+    agent_logic.update(dt, room, camera_x, camera_y, agent_uix.isModalOpen() or not mission_phase)
     triggerPlayerRoomSpawns(room)
     action_vis.update(dt)
+
+    if phase_rules.update(dt) then
+        playPhaseStartSfx(phase_rules.getCurrentPhase())
+
+        if not phase_rules.isMissionPhase() then
+            card_play.cancelDrag()
+        end
+    end
 end
 
 function love.draw()
     local camera_x, camera_y = camera.getOffset()
     local modal_open = agent_uix.isModalOpen()
+    local mission_phase = phase_rules.isMissionPhase()
 
     map_tiles.drawBase(room, camera_x, camera_y)
-    if not modal_open then
+    if not modal_open and mission_phase then
         if card_play.isDragging() then
             overlays.drawCardPlayRange(room, camera_x, camera_y, card_play.getOverlay(room))
         else
@@ -345,15 +373,16 @@ function love.draw()
         movement_animation and movement_animation.agent or nil
     )
     map_tiles.drawMovingAgent(room, camera_x, camera_y, movement_animation)
-    if not modal_open and not card_play.isDragging() then
+    if not modal_open and mission_phase and not card_play.isDragging() then
         overlays.drawMovementPreview(room, camera_x, camera_y, agent_logic.getMovementPreview(), agent_logic.getSelectedAgent())
     end
     map_tiles.drawSelectionShout(room, camera_x, camera_y, agent_logic.getSelectedTile(), agent_logic.getSelectionShout())
     overlays.drawDoors(room, camera_x, camera_y)
     overlays.drawExitMarkers(room, camera_x, camera_y)
+    phase_track.draw(phase_rules.getRound(), phase_rules.getCurrentPhase(), phase_rules.isRoundFlashActive())
     agent_uix.draw()
 
-    if not modal_open then
+    if not modal_open and mission_phase then
         deck_hand_vis.draw()
     end
 
@@ -375,7 +404,13 @@ function love.keypressed(key)
         event_spawn.initialize(room)
         triggerPlayerRoomSpawns(room)
         deck_hand_vis.reload()
+        phase_rules.load()
         camera.reset()
+    elseif key == "space" then
+        if phase_rules.advanceMission() then
+            playPhaseStartSfx(phase_rules.getCurrentPhase())
+            card_play.cancelDrag()
+        end
     elseif key == "," then
         agent_logic.selectAdjacentAgent(room, -1)
     elseif key == "." then
@@ -394,7 +429,7 @@ function love.mousepressed(x, y, button)
 
     local camera_x, camera_y = camera.getOffset()
 
-    if deck_hand_vis.mousepressed(room, button) then
+    if phase_rules.isMissionPhase() and deck_hand_vis.mousepressed(room, button) then
         return
     end
 
@@ -406,8 +441,10 @@ end
 function love.mousereleased(x, y, button)
     local camera_x, camera_y = camera.getOffset()
 
-    if deck_hand_vis.mousereleased(room, x, y, button, camera_x, camera_y) then
+    if phase_rules.isMissionPhase() and deck_hand_vis.mousereleased(room, x, y, button, camera_x, camera_y) then
         return
+    elseif button == 1 and card_play.isDragging() then
+        card_play.cancelDrag()
     end
 
     camera.mousereleased(button)
@@ -418,7 +455,7 @@ function love.mousemoved(_, _, dx, dy)
 end
 
 function love.wheelmoved(x, y)
-    if not agent_uix.isModalOpen() then
+    if not agent_uix.isModalOpen() and phase_rules.isMissionPhase() then
         deck_hand_vis.wheelmoved(x, y)
     end
 end
