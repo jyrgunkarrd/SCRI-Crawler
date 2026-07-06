@@ -13,6 +13,11 @@ local enemy_min = {
             {spd = 2},
             {rng = 1},
         },
+        en_act = {
+
+            { act1 = "FORGatk", weight = 1, dmg = 0 }
+
+        },
         fate = "BSCSTACK",
         enemy = true,
 

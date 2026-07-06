@@ -2,6 +2,7 @@ local map_tiles = require("src.rndr.map_tiles")
 local agent_logic = require("src.sys.agent_logic")
 local pathfinding = require("src.sys.pathfinding")
 local fate_logic = require("src.sys.fate_logic")
+local action_deck_logic = require("src.sys.action_deck_logic")
 
 local card_play = {
     drag = nil,
@@ -187,13 +188,13 @@ local function damageTarget(room, target_tile, target_unit, damage)
 end
 
 local function removeCardFromHand(agent, hand_index)
-    if agent and agent.action_hand and hand_index then
-        table.remove(agent.action_hand, hand_index)
-    end
+    action_deck_logic.discardFromHand(agent, hand_index)
 end
 
 function card_play.canPay(agent, card)
-    return agent and getCurrentAp(agent) >= getCardCost(card)
+    return agent
+        and not action_deck_logic.isCardFatigued(agent, card)
+        and getCurrentAp(agent) >= getCardCost(card)
 end
 
 function card_play.startDrag(agent, source_tile, card, hand_index)

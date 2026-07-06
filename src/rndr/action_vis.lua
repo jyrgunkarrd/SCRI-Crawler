@@ -304,7 +304,7 @@ function action_vis.draw()
         target_rotation,
         1
     )
-    drawUnitImage(event.agent, "agent", agent_x, layout.center_y + 8, IMAGE_H, 0, 1)
+    drawUnitImage(event.agent, event.agent_kind or "agent", agent_x, layout.center_y + 8, IMAGE_H, 0, 1)
 
     if active.elapsed >= active.projectile_start then
         local projectile_t = clamp01((active.elapsed - active.projectile_start) / PROJECTILE_DURATION)

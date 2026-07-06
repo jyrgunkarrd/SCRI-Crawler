@@ -46,6 +46,8 @@ What we need right now is a 5-segment fatigue clock for Agents and a phase / rou
 
 
 
+Okay, now we need to implement the full deck / burn / discard system for action cards.
+
 Okay; we want a fatigue system. Cards are burned out of slots every cycle:
 
 Fatigue 1 - 18 slots

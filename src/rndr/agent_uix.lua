@@ -2,6 +2,8 @@ local agent_logic = require("src.sys.agent_logic")
 local fate_logic = require("src.sys.fate_logic")
 local image_loader = require("src.assets.image_loader")
 local map_tiles = require("src.rndr.map_tiles")
+local action_deck_viewer = require("src.rndr.action_deck_viewer")
+local burn_palette = require("data.burn_palette")
 
 local agent_uix = {}
 
@@ -14,7 +16,7 @@ local BURN_CLOCK_GAP = 12
 local BURN_CLOCK_SIZE = 135
 local BURN_CLOCK_X = PANEL_X + PANEL_W + BURN_CLOCK_GAP
 local BURN_CLOCK_Y = PANEL_Y + (PANEL_H - BURN_CLOCK_SIZE) / 2
-local BURN_CLOCK_SEGMENTS = 5
+local BURN_CLOCK_SEGMENTS = 4
 local BURN_CLOCK_CIRCLE_SEGMENTS = 128
 local BURN_CLOCK_OUTER_RADIUS = 58
 local BURN_CLOCK_CENTER_RADIUS = 39
@@ -29,6 +31,7 @@ local CONTENT_Y = PANEL_Y + PANEL_PAD
 local CONTENT_W = PANEL_X + PANEL_W - PANEL_PAD - CONTENT_X
 local STAT_X = CONTENT_X
 local STAT_Y = CONTENT_Y + 52
+local ENEMY_STAT_Y = STAT_Y - 12
 local STAT_ROW_H = 32
 local PANEL_COLOR = { 0, 0, 0, 0.86 }
 local TEXT_COLOR = { 1, 1, 1, 1 }
@@ -67,8 +70,14 @@ local FATE_SECTION_GAP = 14
 local FATE_ROW_H = 28
 local FATE_ROW_GAP = 6
 local FATE_FONT_SIZE = 16
+local DECK_BUTTON_SIZE = 74
+local DECK_BUTTON_GAP = 16
+local DECK_BUTTON_ICON_PAD = 14
+local DECK_ICON_PATH = "assets/images/icons/deck.webp"
 local full_images = {}
 local missing_full_images = {}
+local deck_icon = nil
+local missing_deck_icon = false
 local fate_font
 local burn_clock_font
 local modal_unit = nil
@@ -78,6 +87,8 @@ local STAT_COLORS = {
     hp = { 1, 0.2902, 0.4941, 1 },
     lp = { 0.1412, 0.8157, 1, 1 },
     atk = { 0.9961, 0.3373, 0.1765, 1 },
+    spd = { 1, 1, 1, 1 },
+    rng = { 1, 0.8706, 0.3137, 1 },
 }
 local AGENT_STAT_ORDER = {
     { id = "ap", label = "AP" },
@@ -87,6 +98,8 @@ local AGENT_STAT_ORDER = {
 local ENEMY_STAT_ORDER = {
     { id = "hp", label = "HP" },
     { id = "atk", label = "ATK" },
+    { id = "spd", label = "SPD" },
+    { id = "rng", label = "RNG" },
 }
 
 local function pointInRect(x, y, rect_x, rect_y, rect_w, rect_h)
@@ -134,6 +147,33 @@ end
 
 local function getImageDir(kind)
     return kind == "enemy" and ENEMY_IMAGE_DIR or AGENT_IMAGE_DIR
+end
+
+local function getDeckIcon()
+    if deck_icon then
+        return deck_icon
+    end
+
+    if missing_deck_icon then
+        return nil
+    end
+
+    if not love.filesystem.getInfo(DECK_ICON_PATH, "file") then
+        missing_deck_icon = true
+        return nil
+    end
+
+    local ok, image = pcall(image_loader.newImage, DECK_ICON_PATH)
+
+    if not ok then
+        print("Unable to load deck icon '" .. DECK_ICON_PATH .. "': " .. tostring(image))
+        missing_deck_icon = true
+        return nil
+    end
+
+    deck_icon = image
+
+    return deck_icon
 end
 
 local function getFullImage(unit, kind)
@@ -187,6 +227,31 @@ local function buildHexPoints(center_x, center_y, radius)
     return points
 end
 
+local function hexToColor(hex, alpha)
+    if type(hex) ~= "string" or #hex < 6 then
+        return 1, 1, 1, alpha or 1
+    end
+
+    return tonumber(hex:sub(1, 2), 16) / 255,
+        tonumber(hex:sub(3, 4), 16) / 255,
+        tonumber(hex:sub(5, 6), 16) / 255,
+        alpha or 1
+end
+
+local function buildCircleSegmentPoints(center_x, center_y, radius, start_angle, end_angle)
+    local points = { center_x, center_y }
+    local steps = math.max(4, math.ceil(BURN_CLOCK_CIRCLE_SEGMENTS / BURN_CLOCK_SEGMENTS))
+
+    for index = 0, steps do
+        local angle = start_angle + (end_angle - start_angle) * index / steps
+
+        points[#points + 1] = center_x + math.cos(angle) * radius
+        points[#points + 1] = center_y + math.sin(angle) * radius
+    end
+
+    return points
+end
+
 local function drawPortrait(unit, kind)
     local image = kind == "enemy" and map_tiles.getEnemyPortrait(unit) or map_tiles.getAgentPortrait(unit)
     local center_x = PORTRAIT_BOX_X + PORTRAIT_BOX_SIZE / 2
@@ -225,11 +290,13 @@ local function drawPortrait(unit, kind)
     love.graphics.setLineWidth(1)
 end
 
-local function drawBurnClock()
+local function drawBurnClock(agent)
     local center_x = BURN_CLOCK_X + BURN_CLOCK_SIZE / 2
     local center_y = BURN_CLOCK_Y + BURN_CLOCK_SIZE / 2
     local previous_line_width = love.graphics.getLineWidth()
     local previous_font = love.graphics.getFont()
+    local burn_level = math.max(0, math.floor(tonumber(agent and agent.burn_level) or 0))
+    local filled_segments = math.max(0, math.min(BURN_CLOCK_SEGMENTS, burn_level - 1))
 
     if not burn_clock_font then
         burn_clock_font = love.graphics.newFont("assets/fonts/Furore.otf", BURN_CLOCK_FONT_SIZE)
@@ -240,6 +307,15 @@ local function drawBurnClock()
 
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.circle("fill", center_x, center_y, BURN_CLOCK_OUTER_RADIUS, BURN_CLOCK_CIRCLE_SEGMENTS)
+
+    for index = 1, filled_segments do
+        local start_angle = math.rad(-90 + (index - 1) * 360 / BURN_CLOCK_SEGMENTS)
+        local end_angle = math.rad(-90 + index * 360 / BURN_CLOCK_SEGMENTS)
+        local palette_index = index + 1
+
+        love.graphics.setColor(hexToColor(burn_palette["burn" .. tostring(palette_index)], 1))
+        love.graphics.polygon("fill", buildCircleSegmentPoints(center_x, center_y, BURN_CLOCK_OUTER_RADIUS, start_angle, end_angle))
+    end
 
     love.graphics.setColor(0, 0, 0, 1)
     love.graphics.setLineWidth(4)
@@ -270,12 +346,14 @@ local function drawBurnClock()
     love.graphics.setLineWidth(previous_line_width)
 end
 
-local function drawStatValue(label, stat, color, index, pending_cost)
+local function drawStatValue(label, stat, color, index, pending_cost, stat_y)
     local current = math.floor(tonumber(stat and stat.current) or 0)
     local maximum = math.floor(tonumber(stat and stat.maximum) or 0)
 
-    local y = STAT_Y + (index - 1) * STAT_ROW_H
-    local value_text = label == "ATK" and tostring(current) or ("%d / %d"):format(current, maximum)
+    local y = (stat_y or STAT_Y) + (index - 1) * STAT_ROW_H
+    local value_text = (label == "ATK" or label == "SPD" or label == "RNG")
+        and tostring(current)
+        or ("%d / %d"):format(current, maximum)
     local font = love.graphics.getFont()
     local value_w = font:getWidth(value_text)
     local value_x = STAT_X + CONTENT_W - value_w
@@ -339,6 +417,46 @@ local function drawFullImageWindow(unit, kind, layout)
         image:getHeight() / 2
     )
     love.graphics.setScissor()
+end
+
+local function getDeckButtonRect(layout)
+    return {
+        x = layout.image_x - DECK_BUTTON_GAP - DECK_BUTTON_SIZE,
+        y = layout.image_y + (layout.image_h - DECK_BUTTON_SIZE) / 2,
+        w = DECK_BUTTON_SIZE,
+        h = DECK_BUTTON_SIZE,
+    }
+end
+
+local function drawDeckButton(layout)
+    local rect = getDeckButtonRect(layout)
+    local icon = getDeckIcon()
+
+    love.graphics.setColor(MODAL_FILL_COLOR)
+    love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h)
+    love.graphics.setColor(MODAL_BORDER_COLOR)
+    love.graphics.setLineWidth(5)
+    love.graphics.rectangle("line", rect.x, rect.y, rect.w, rect.h)
+    love.graphics.setLineWidth(1)
+
+    if not icon then
+        return
+    end
+
+    local icon_size = rect.w - DECK_BUTTON_ICON_PAD * 2
+    local scale = math.min(icon_size / icon:getWidth(), icon_size / icon:getHeight())
+
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(
+        icon,
+        rect.x + rect.w / 2,
+        rect.y + rect.h / 2,
+        0,
+        scale,
+        scale,
+        icon:getWidth() / 2,
+        icon:getHeight() / 2
+    )
 end
 
 local function drawSlotWindow(agent, layout)
@@ -469,6 +587,11 @@ local function drawFateModal()
         return
     end
 
+    if action_deck_viewer.isOpen() then
+        action_deck_viewer.draw()
+        return
+    end
+
     local layout = modal_kind == "enemy" and getEnemyModalLayout() or getModalLayout()
 
     love.graphics.setColor(MODAL_BACKDROP_COLOR)
@@ -477,6 +600,7 @@ local function drawFateModal()
     drawFullImageWindow(modal_unit, modal_kind, layout)
 
     if modal_kind ~= "enemy" then
+        drawDeckButton(layout)
         drawSlotWindow(modal_unit, layout)
     end
 
@@ -504,14 +628,21 @@ function agent_uix.draw()
     drawPortrait(unit, kind)
 
     if kind == "agent" then
-        drawBurnClock()
+        drawBurnClock(unit)
     end
 
     love.graphics.setColor(TEXT_COLOR)
     love.graphics.print(unit.name or unit.id or fallback_label, CONTENT_X, CONTENT_Y)
 
     for index, stat in ipairs(stat_order) do
-        drawStatValue(stat.label, stats[stat.id], STAT_COLORS[stat.id], index, stat.id == "ap" and pending_ap_cost or nil)
+        drawStatValue(
+            stat.label,
+            stats[stat.id],
+            STAT_COLORS[stat.id],
+            index,
+            stat.id == "ap" and pending_ap_cost or nil,
+            kind == "enemy" and ENEMY_STAT_Y or STAT_Y
+        )
     end
 
     love.graphics.setColor(1, 1, 1, 1)
@@ -520,22 +651,34 @@ function agent_uix.draw()
 end
 
 function agent_uix.mousepressed(x, y, button)
-    if button ~= 1 then
-        return false
-    end
-
     if modal_unit then
+        if action_deck_viewer.mousepressed(x, y, button) then
+            return true
+        end
+
+        if button ~= 1 then
+            return false
+        end
+
         local layout = modal_kind == "enemy" and getEnemyModalLayout() or getModalLayout()
         local in_image = pointInRect(x, y, layout.image_x, layout.image_y, layout.image_w, layout.image_h)
         local in_slot = layout.slot_x and pointInRect(x, y, layout.slot_x, layout.slot_y, layout.slot_w, layout.slot_h)
         local in_deck = pointInRect(x, y, layout.deck_x, layout.deck_y, layout.deck_w, layout.deck_h)
+        local deck_button = modal_kind ~= "enemy" and getDeckButtonRect(layout) or nil
+        local in_deck_button = deck_button and pointInRect(x, y, deck_button.x, deck_button.y, deck_button.w, deck_button.h)
 
-        if not in_image and not in_slot and not in_deck then
+        if in_deck_button then
+            action_deck_viewer.open(modal_unit)
+        elseif not in_image and not in_slot and not in_deck then
             modal_unit = nil
             modal_kind = nil
         end
 
         return true
+    end
+
+    if button ~= 1 then
+        return false
     end
 
     local unit, kind = agent_logic.getSelectedUnit()
@@ -550,6 +693,10 @@ function agent_uix.mousepressed(x, y, button)
 end
 
 function agent_uix.closeModal()
+    if action_deck_viewer.close() then
+        return true
+    end
+
     if not modal_unit then
         return false
     end
@@ -562,6 +709,10 @@ end
 
 function agent_uix.isModalOpen()
     return modal_unit ~= nil
+end
+
+function agent_uix.wheelmoved(x, y)
+    return action_deck_viewer.wheelmoved(x, y)
 end
 
 return agent_uix

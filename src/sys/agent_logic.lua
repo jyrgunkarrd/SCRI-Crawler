@@ -2,6 +2,8 @@ local map_tiles = require("src.rndr.map_tiles")
 local pathfinding = require("src.sys.pathfinding")
 local sfx_logic = require("src.sys.sfx_logic")
 local fate_logic = require("src.sys.fate_logic")
+local action_deck_logic = require("src.sys.action_deck_logic")
+local burn_logic = require("src.sys.burn_logic")
 
 local agent_logic = {
     selected_tile = nil,
@@ -12,6 +14,10 @@ local agent_logic = {
         range = {},
         preview = nil,
         animation = nil,
+    },
+    enemy_overlay = {
+        movement = {},
+        threat = {},
     },
 }
 
@@ -148,27 +154,6 @@ local function getCardIndex()
     return card_index
 end
 
-local function shuffle(cards)
-    for index = #cards, 2, -1 do
-        local swap_index = love.math.random(index)
-
-        cards[index], cards[swap_index] = cards[swap_index], cards[index]
-    end
-end
-
-local function cloneCardForAgent(card, art_id)
-    local clone = {}
-
-    for key, value in pairs(card) do
-        clone[key] = value
-    end
-
-    clone.base_id = card.id
-    clone.art_id = art_id
-
-    return clone
-end
-
 local function getActionArtLookup(agent)
     local lookup = {}
 
@@ -179,50 +164,6 @@ local function getActionArtLookup(agent)
     end
 
     return lookup
-end
-
-local function buildActionDrawPile(agent, action_deck_lookup, card_index)
-    local draw_pile = {}
-    local action_art = getActionArtLookup(agent)
-
-    for _, deck_id in ipairs(agent.actions or {}) do
-        local deck = action_deck_lookup[deck_id]
-
-        if not deck then
-            print("Unknown action deck id: " .. tostring(deck_id))
-        else
-            for _, stack in ipairs(deck.cards or {}) do
-                local card = card_index.byId[stack.slot]
-
-                if not card then
-                    print("Unknown action card id: " .. tostring(stack.slot))
-                else
-                    for _ = 1, math.max(0, math.floor(stack.quantity or 0)) do
-                        draw_pile[#draw_pile + 1] = cloneCardForAgent(card, action_art[card.id])
-                    end
-                end
-            end
-        end
-    end
-
-    shuffle(draw_pile)
-
-    return draw_pile
-end
-
-local function drawActionCards(agent, count)
-    agent.action_hand = agent.action_hand or {}
-    agent.action_draw_pile = agent.action_draw_pile or {}
-
-    for _ = 1, count do
-        local card = table.remove(agent.action_draw_pile)
-
-        if not card then
-            return
-        end
-
-        agent.action_hand[#agent.action_hand + 1] = card
-    end
 end
 
 local function isOccupiedDestination(tile, selected_tile)
@@ -266,9 +207,73 @@ local function buildMovementPassability(room, start_tile)
     end
 end
 
+local function buildEnemyMovementPassability(start_tile)
+    return function(tile)
+        if tile == start_tile then
+            return true
+        end
+
+        return not tile.agent
+    end
+end
+
+local function hexDistance(a, b)
+    local aq = a.q
+    local ar = a.r
+    local as = -aq - ar
+    local bq = b.q
+    local br = b.r
+    local bs = -bq - br
+
+    return math.max(math.abs(aq - bq), math.abs(ar - br), math.abs(as - bs))
+end
+
+local function refreshEnemyOverlay(room)
+    agent_logic.enemy_overlay.movement = {}
+    agent_logic.enemy_overlay.threat = {}
+
+    if not room or not agent_logic.selected_enemy or not agent_logic.selected_tile then
+        return
+    end
+
+    local speed = math.max(0, math.floor(tonumber(getStatValue(agent_logic.selected_enemy, "spd")) or 0))
+    local range = math.max(0, math.floor(tonumber(getStatValue(agent_logic.selected_enemy, "rng")) or 0))
+    local selected_key = pathfinding.tileKey(agent_logic.selected_tile)
+    local reachable = pathfinding.findReachable(room, agent_logic.selected_tile, speed, {
+        isPassable = buildEnemyMovementPassability(agent_logic.selected_tile),
+    })
+
+    for key, entry in pairs(reachable) do
+        if key ~= selected_key and not entry.tile.enemy then
+            agent_logic.enemy_overlay.movement[key] = entry
+        end
+    end
+
+    for _, entry in pairs(reachable) do
+        if entry.tile == agent_logic.selected_tile or not entry.tile.enemy then
+            for _, tile in ipairs(room.tiles or {}) do
+                local key = pathfinding.tileKey(tile)
+
+                if key ~= selected_key and not agent_logic.enemy_overlay.movement[key] and hexDistance(entry.tile, tile) <= range then
+                    agent_logic.enemy_overlay.threat[key] = {
+                        tile = tile,
+                    }
+                end
+            end
+        end
+    end
+end
+
 local function refreshMovementRange(room)
     agent_logic.movement.range = {}
     agent_logic.movement.preview = nil
+    agent_logic.enemy_overlay.movement = {}
+    agent_logic.enemy_overlay.threat = {}
+
+    if agent_logic.selected_enemy then
+        refreshEnemyOverlay(room)
+        return
+    end
 
     if not room or not agent_logic.selected_agent or not agent_logic.selected_tile then
         return
@@ -355,6 +360,8 @@ function agent_logic.clearSelection()
     agent_logic.movement.range = {}
     agent_logic.movement.preview = nil
     agent_logic.movement.animation = nil
+    agent_logic.enemy_overlay.movement = {}
+    agent_logic.enemy_overlay.threat = {}
 end
 
 function agent_logic.selectAgent(agent, tile, room)
@@ -370,17 +377,21 @@ function agent_logic.selectAgent(agent, tile, room)
         type_seconds = type_seconds,
         duration = type_seconds + SHOUT_HOLD_SECONDS,
     }
+    agent_logic.enemy_overlay.movement = {}
+    agent_logic.enemy_overlay.threat = {}
     refreshMovementRange(room)
     sfx_logic.playAgentSelect(agent)
 end
 
-function agent_logic.selectEnemy(enemy, tile)
+function agent_logic.selectEnemy(enemy, tile, room)
     agent_logic.selected_agent = nil
     agent_logic.selected_enemy = enemy
     agent_logic.selected_tile = tile
     agent_logic.shout = nil
     agent_logic.movement.range = {}
     agent_logic.movement.preview = nil
+    refreshEnemyOverlay(room)
+    sfx_logic.playNamed("token_select")
 end
 
 function agent_logic.update(dt, room, camera_x, camera_y, suppress_movement)
@@ -450,7 +461,7 @@ function agent_logic.handleMousePressed(room, x, y, button, camera_x, camera_y)
     if tile and tile.agent then
         agent_logic.selectAgent(tile.agent, tile, room)
     elseif tile and tile.enemy then
-        agent_logic.selectEnemy(tile.enemy, tile)
+        agent_logic.selectEnemy(tile.enemy, tile, room)
     else
         agent_logic.clearSelection()
     end
@@ -531,6 +542,10 @@ function agent_logic.getMovementRange()
     return agent_logic.movement.range
 end
 
+function agent_logic.getEnemyOverlay()
+    return agent_logic.enemy_overlay
+end
+
 function agent_logic.getMovementPreview()
     return agent_logic.movement.preview
 end
@@ -547,6 +562,8 @@ function agent_logic.getSelectedStats()
         return {
             hp = getRuntimeStat(enemy, "hp"),
             atk = getRuntimeStat(enemy, "atk"),
+            spd = getRuntimeStat(enemy, "spd"),
+            rng = getRuntimeStat(enemy, "rng"),
         }
     end
 
@@ -564,14 +581,14 @@ function agent_logic.ensureRuntimeStats(agent)
     fate_logic.initializeFateDeck(agent)
 end
 
-function agent_logic.refreshExhaustedAgents(room)
+function agent_logic.refreshAgents(room)
     local refreshed = false
 
     for _, tile in ipairs(room and room.tiles or {}) do
         if tile.agent then
             local ap = getRuntimeStat(tile.agent, "ap")
 
-            if ap.maximum > 0 and ap.current <= 0 then
+            if ap.maximum > 0 and ap.current < ap.maximum then
                 ap.current = ap.maximum
                 refreshed = true
             end
@@ -585,6 +602,31 @@ function agent_logic.refreshExhaustedAgents(room)
     return refreshed
 end
 
+function agent_logic.refreshExhaustedAgents(room)
+    return agent_logic.refreshAgents(room)
+end
+
+function agent_logic.discardAgentHands(room)
+    for _, tile in ipairs(room and room.tiles or {}) do
+        if tile.agent then
+            action_deck_logic.discardHand(tile.agent)
+        end
+    end
+end
+
+function agent_logic.drawAgentHands(room)
+    for _, tile in ipairs(room and room.tiles or {}) do
+        if tile.agent then
+            local agent = tile.agent
+            local _, reason = burn_logic.drawHand(agent, room, ACTION_HAND_SIZE)
+
+            if reason == "eliminated" and agent_logic.selected_agent == agent then
+                agent_logic.clearSelection()
+            end
+        end
+    end
+end
+
 function agent_logic.initializeActionHand(agent, action_deck_lookup, card_index)
     if not agent then
         return
@@ -593,9 +635,16 @@ function agent_logic.initializeActionHand(agent, action_deck_lookup, card_index)
     action_deck_lookup = action_deck_lookup or getActionDeckLookup()
     card_index = card_index or getCardIndex()
 
-    agent.action_draw_pile = buildActionDrawPile(agent, action_deck_lookup, card_index)
+    agent.action_draw_pile = action_deck_logic.buildDrawPile(
+        agent,
+        action_deck_lookup,
+        card_index,
+        getActionArtLookup(agent)
+    )
+    agent.action_discard_pile = {}
     agent.action_hand = {}
-    drawActionCards(agent, ACTION_HAND_SIZE)
+    burn_logic.initializeAgent(agent)
+    burn_logic.drawCards(agent, nil, ACTION_HAND_SIZE)
 end
 
 function agent_logic.initializeActionHands(agents)
@@ -610,6 +659,8 @@ end
 function agent_logic.ensureEnemyRuntimeStats(enemy)
     getRuntimeStat(enemy, "hp")
     getRuntimeStat(enemy, "atk")
+    getRuntimeStat(enemy, "spd")
+    getRuntimeStat(enemy, "rng")
 end
 
 function agent_logic.refreshMovementRange(room)

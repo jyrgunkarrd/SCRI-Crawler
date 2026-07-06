@@ -201,7 +201,7 @@ local function drawAgentPortraitTile(tile, center_x, center_y, selected)
     drawHexPortrait(image, center_x, center_y, radius, color, PORTRAIT_OUTLINE_COLOR)
 end
 
-local function drawEnemyPortraitTile(tile, center_x, center_y)
+local function drawEnemyPortraitTile(tile, center_x, center_y, selected)
     if not tile.enemy then
         return
     end
@@ -212,26 +212,47 @@ local function drawEnemyPortraitTile(tile, center_x, center_y)
         return
     end
 
+    local pulse_scale = 1
+
+    if selected then
+        pulse_scale = 1 + math.sin(love.timer.getTime() * SELECTED_PULSE_SPEED) * SELECTED_PULSE_AMOUNT
+    end
+
+    local radius = PORTRAIT_RADIUS * pulse_scale
+
     drawHexPortrait(
         image,
         center_x,
         center_y,
-        PORTRAIT_RADIUS,
+        radius,
         { 1, 1, 1, 1 },
         ENEMY_PORTRAIT_OUTLINE_COLOR,
-        PORTRAIT_RADIUS - ENEMY_PORTRAIT_OUTLINE_INSET,
+        radius - ENEMY_PORTRAIT_OUTLINE_INSET,
         PORTRAIT_OUTLINE_COLOR
     )
 end
 
-local function drawMovingPortrait(agent, center_x, center_y)
-    local image = getAgentPortrait(agent)
+local function drawMovingPortrait(unit, kind, center_x, center_y)
+    local image = kind == "enemy" and getEnemyPortrait(unit) or getAgentPortrait(unit)
 
     if not image then
         return
     end
 
-    drawHexPortrait(image, center_x, center_y, PORTRAIT_RADIUS, { 1, 1, 1, 1 }, PORTRAIT_OUTLINE_COLOR)
+    if kind == "enemy" then
+        drawHexPortrait(
+            image,
+            center_x,
+            center_y,
+            PORTRAIT_RADIUS,
+            { 1, 1, 1, 1 },
+            ENEMY_PORTRAIT_OUTLINE_COLOR,
+            PORTRAIT_RADIUS - ENEMY_PORTRAIT_OUTLINE_INSET,
+            PORTRAIT_OUTLINE_COLOR
+        )
+    else
+        drawHexPortrait(image, center_x, center_y, PORTRAIT_RADIUS, { 1, 1, 1, 1 }, PORTRAIT_OUTLINE_COLOR)
+    end
 end
 
 local function easeOutBack(t)
@@ -290,7 +311,7 @@ function map_tiles.drawBase(room, camera_x, camera_y)
     love.graphics.setColor(1, 1, 1, 1)
 end
 
-function map_tiles.drawPortraits(room, camera_x, camera_y, selected_tile, moving_agent)
+function map_tiles.drawPortraits(room, camera_x, camera_y, selected_tile, moving_unit, moving_kind)
     if not room or not room.tiles then
         return
     end
@@ -300,9 +321,11 @@ function map_tiles.drawPortraits(room, camera_x, camera_y, selected_tile, moving
     for _, tile in ipairs(room.tiles) do
         local x, y = axialToPixel(tile.q, tile.r)
 
-        drawEnemyPortraitTile(tile, x + offset_x, y + offset_y)
+        if tile.enemy ~= moving_unit or moving_kind ~= "enemy" then
+            drawEnemyPortraitTile(tile, x + offset_x, y + offset_y, tile == selected_tile)
+        end
 
-        if tile.agent ~= moving_agent then
+        if tile.agent ~= moving_unit or moving_kind == "enemy" then
             drawAgentPortraitTile(tile, x + offset_x, y + offset_y, tile == selected_tile)
         end
     end
@@ -323,7 +346,7 @@ function map_tiles.drawMovingAgent(room, camera_x, camera_y, animation)
     local x = from_x + (to_x - from_x) * eased + offset_x
     local y = from_y + (to_y - from_y) * eased + offset_y
 
-    drawMovingPortrait(animation.agent, x, y)
+    drawMovingPortrait(animation.agent, animation.kind or "agent", x, y)
     love.graphics.setColor(1, 1, 1, 1)
 end
 

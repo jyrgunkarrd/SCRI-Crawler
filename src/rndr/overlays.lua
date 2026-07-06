@@ -11,11 +11,12 @@ local DOOR_RADIUS = 14
 local MOVE_COLOR = { 1, 1, 1, 1 }
 local ZOC_COLOR = { 0.6118, 0, 0.0431, 1 }
 local CARD_TARGET_COLOR = { 1, 0.2902, 0.4902, 1 }
+local ENEMY_THREAT_COLOR = { 0.9961, 0, 0.4353, 1 }
 local OVERLAY_BACKING_COLOR = { 0, 0, 0, 0.58 }
 local MOVE_ALPHA = 1
 local ZOC_ALPHA = 1
-local CARD_RANGE_ALPHA = 0.62
-local CARD_TARGET_ALPHA = 0.82
+local CARD_RANGE_ALPHA = MOVE_ALPHA
+local CARD_TARGET_ALPHA = MOVE_ALPHA
 local OVERLAY_OUTLINE_COLOR = { 0, 0, 0, 0.92 }
 local OVERLAY_OUTLINE_W = 3
 local GHOST_ALPHA = 0.48
@@ -195,6 +196,36 @@ function overlays.drawMovementRange(room, camera_x, camera_y, movement_range)
         drawStableHighlight(
             map_tiles.buildHexPoints(x + offset_x, y + offset_y),
             MOVE_COLOR,
+            MOVE_ALPHA
+        )
+    end
+
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
+function overlays.drawEnemySelectionRange(room, camera_x, camera_y, overlay)
+    if not room or not overlay then
+        return
+    end
+
+    local offset_x, offset_y = getDrawOffset(room, camera_x, camera_y)
+
+    for _, entry in pairs(overlay.movement or {}) do
+        local x, y = map_tiles.axialToPixel(entry.tile.q, entry.tile.r)
+
+        drawStableHighlight(
+            map_tiles.buildHexPoints(x + offset_x, y + offset_y),
+            MOVE_COLOR,
+            MOVE_ALPHA
+        )
+    end
+
+    for _, entry in pairs(overlay.threat or {}) do
+        local x, y = map_tiles.axialToPixel(entry.tile.q, entry.tile.r)
+
+        drawStableHighlight(
+            map_tiles.buildHexPoints(x + offset_x, y + offset_y),
+            ENEMY_THREAT_COLOR,
             MOVE_ALPHA
         )
     end

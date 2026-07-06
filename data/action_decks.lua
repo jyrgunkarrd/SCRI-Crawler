@@ -1,16 +1,14 @@
 -- data/action_decks.lua
 -- action deck definitions
 
+local action_deck_logic = require("src.sys.action_deck_logic")
+
 local action_decks = {
 
     {
 
         id = "BSCDECK",
-        cards = {
-
-            {slot = "ATK", quantity = 10},
-
-        },
+        slots = action_deck_logic.buildSlots("ATK"),
 
     },
 

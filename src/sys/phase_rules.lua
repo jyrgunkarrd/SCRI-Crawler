@@ -31,11 +31,11 @@ function phase_rules.update(dt)
         round_flash_elapsed = math.max(0, round_flash_elapsed - dt)
     end
 
-    if current_phase == phase_rules.PHASE_START or current_phase == phase_rules.PHASE_SERMON then
+    if current_phase == phase_rules.PHASE_START then
         elapsed = elapsed + dt
 
         if elapsed >= AUTO_PHASE_DELAY then
-            setPhase(current_phase == phase_rules.PHASE_START and phase_rules.PHASE_MISSION or phase_rules.PHASE_END)
+            setPhase(phase_rules.PHASE_MISSION)
         end
     elseif current_phase == phase_rules.PHASE_END then
         elapsed = elapsed + dt
@@ -59,12 +59,25 @@ function phase_rules.advanceMission()
     return true
 end
 
+function phase_rules.advanceSermon()
+    if current_phase ~= phase_rules.PHASE_SERMON then
+        return false
+    end
+
+    setPhase(phase_rules.PHASE_END)
+    return true
+end
+
 function phase_rules.isMissionPhase()
     return current_phase == phase_rules.PHASE_MISSION
 end
 
 function phase_rules.isStartPhase()
     return current_phase == phase_rules.PHASE_START
+end
+
+function phase_rules.isSermonPhase()
+    return current_phase == phase_rules.PHASE_SERMON
 end
 
 function phase_rules.isRoundFlashActive()

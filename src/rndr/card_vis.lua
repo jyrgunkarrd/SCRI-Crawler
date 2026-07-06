@@ -157,13 +157,15 @@ local function getRarityLabelHeight()
     return getBodyFont():getHeight() + RARITY_LABEL_PAD_Y * 2
 end
 
-local function findCardImagePath(card_id)
+local function findCardImagePath(card_id, image_dir)
     if not card_id then
         return nil
     end
 
+    image_dir = image_dir or "assets/images/cards"
+
     for _, extension in ipairs(CARD_IMAGE_EXTENSIONS) do
-        local path = ("assets/images/cards/%s.%s"):format(card_id, extension)
+        local path = ("%s/%s.%s"):format(image_dir, card_id, extension)
 
         if love.filesystem.getInfo(path, "file") then
             return path
@@ -179,33 +181,37 @@ end
 
 local function getCardImage(card)
     local image_id = getCardImageId(card)
+    local image_dir = card and card.image_dir or "assets/images/cards"
+    local cache_key = image_dir .. ":" .. tostring(image_id)
 
     if not card or not card.id then
         return nil
     end
 
-    if card_images[image_id] then
-        return card_images[image_id]
+    if card_images[cache_key] then
+        return card_images[cache_key]
     end
 
-    if missing_images[image_id] then
+    if missing_images[cache_key] then
         if image_id ~= card.id then
             return getCardImage({
                 id = card.id,
+                image_dir = image_dir,
             })
         end
 
         return nil
     end
 
-    local path = findCardImagePath(image_id)
+    local path = findCardImagePath(image_id, image_dir)
 
     if not path then
-        missing_images[image_id] = true
+        missing_images[cache_key] = true
 
         if image_id ~= card.id then
             return getCardImage({
                 id = card.id,
+                image_dir = image_dir,
             })
         end
 
@@ -216,18 +222,19 @@ local function getCardImage(card)
 
     if not ok then
         print("Unable to load card image '" .. path .. "': " .. tostring(image))
-        missing_images[image_id] = true
+        missing_images[cache_key] = true
 
         if image_id ~= card.id then
             return getCardImage({
                 id = card.id,
+                image_dir = image_dir,
             })
         end
 
         return nil
     end
 
-    card_images[image_id] = image
+    card_images[cache_key] = image
 
     return image
 end

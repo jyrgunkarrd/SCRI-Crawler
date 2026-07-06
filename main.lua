@@ -110,6 +110,7 @@ local action_vis = require("src.rndr.action_vis")
 local phase_track = require("src.rndr.phase_track")
 local phase_rules = require("src.sys.phase_rules")
 local sfx_logic = require("src.sys.sfx_logic")
+local enemy_ai = require("src.sys.enemy_ai")
 
 local room
 local DEV_MAP_CONFIG_PATH = "data.dev_map"
@@ -328,22 +329,50 @@ function love.update(dt)
     camera.update(dt, room)
     local camera_x, camera_y = camera.getOffset()
     local mission_phase = phase_rules.isMissionPhase()
+    local phase_before_update = phase_rules.getCurrentPhase()
 
     if phase_rules.isStartPhase() then
-        agent_logic.refreshExhaustedAgents(room)
+        agent_logic.refreshAgents(room)
     end
 
     agent_logic.update(dt, room, camera_x, camera_y, agent_uix.isModalOpen() or not mission_phase)
     triggerPlayerRoomSpawns(room)
     action_vis.update(dt)
+    enemy_ai.update(dt)
 
     if phase_rules.update(dt) then
-        playPhaseStartSfx(phase_rules.getCurrentPhase())
+        local current_phase = phase_rules.getCurrentPhase()
+
+        playPhaseStartSfx(current_phase)
+
+        if phase_before_update ~= phase_rules.PHASE_START and current_phase == phase_rules.PHASE_START then
+            agent_logic.drawAgentHands(room)
+        end
 
         if not phase_rules.isMissionPhase() then
             card_play.cancelDrag()
         end
     end
+
+    if phase_rules.isSermonPhase() and not action_vis.isActive() and not enemy_ai.isMoving() then
+        local event = enemy_ai.takeNextAction(room)
+
+        if event then
+            if event.eliminated and agent_logic.getSelectedAgent() == event.target then
+                agent_logic.clearSelection()
+            else
+                agent_logic.refreshMovementRange(room)
+            end
+
+            action_vis.start(event)
+        elseif not enemy_ai.hasReadyEnemies(room) then
+            agent_logic.refreshMovementRange(room)
+            if phase_rules.advanceSermon() then
+                agent_logic.discardAgentHands(room)
+            end
+        end
+    end
+
 end
 
 function love.draw()
@@ -360,19 +389,25 @@ function love.draw()
             overlays.drawEnemyZonesOfControl(room, camera_x, camera_y, agent_logic.getMovementRange())
         end
     end
+    if not modal_open and not card_play.isDragging() and agent_logic.getSelectedEnemy() then
+        overlays.drawEnemySelectionRange(room, camera_x, camera_y, agent_logic.getEnemyOverlay())
+    end
     if not modal_open then
         overlays.drawHover(room, camera_x, camera_y)
     end
     local movement_animation = agent_logic.getMovementAnimation()
+    local enemy_movement_animation = enemy_ai.getMovementAnimation()
+    local active_movement_animation = movement_animation or enemy_movement_animation
 
     map_tiles.drawPortraits(
         room,
         camera_x,
         camera_y,
         agent_logic.getSelectedTile(),
-        movement_animation and movement_animation.agent or nil
+        active_movement_animation and active_movement_animation.agent or nil,
+        active_movement_animation and active_movement_animation.kind or "agent"
     )
-    map_tiles.drawMovingAgent(room, camera_x, camera_y, movement_animation)
+    map_tiles.drawMovingAgent(room, camera_x, camera_y, active_movement_animation)
     if not modal_open and mission_phase and not card_play.isDragging() then
         overlays.drawMovementPreview(room, camera_x, camera_y, agent_logic.getMovementPreview(), agent_logic.getSelectedAgent())
     end
@@ -409,6 +444,7 @@ function love.keypressed(key)
     elseif key == "space" then
         if phase_rules.advanceMission() then
             playPhaseStartSfx(phase_rules.getCurrentPhase())
+            enemy_ai.refreshEnemies(room)
             card_play.cancelDrag()
         end
     elseif key == "," then
@@ -455,7 +491,9 @@ function love.mousemoved(_, _, dx, dy)
 end
 
 function love.wheelmoved(x, y)
-    if not agent_uix.isModalOpen() and phase_rules.isMissionPhase() then
+    if agent_uix.isModalOpen() then
+        agent_uix.wheelmoved(x, y)
+    elseif phase_rules.isMissionPhase() then
         deck_hand_vis.wheelmoved(x, y)
     end
 end

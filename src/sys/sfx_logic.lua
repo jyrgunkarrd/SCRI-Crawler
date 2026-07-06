@@ -58,7 +58,7 @@ function sfx_logic.playAgentVoice(agent)
 end
 
 function sfx_logic.playAgentSelect(agent)
-    sfx_logic.playNamed("agent_select")
+    sfx_logic.playNamed("token_select")
     sfx_logic.playAgentVoice(agent)
 end
 
