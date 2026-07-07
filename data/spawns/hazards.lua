@@ -14,7 +14,7 @@ local hazards = {
         },
         en_act = {
 
-            { act1 = "FORGatk", weight = 1, dmg = 0 }
+            { act1 = "SENTRYatk", weight = 1, dmg = 0 }
 
         },
         fate = "BSCSTACK",
