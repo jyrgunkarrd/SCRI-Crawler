@@ -52,6 +52,26 @@ function action_deck_logic.buildSlots(card_id)
     return slots
 end
 
+function action_deck_logic.buildSplitSlots(card_ids)
+    local slots = {}
+    local index = 1
+
+    for _, band in ipairs(BURN_SLOT_COUNTS) do
+        for _ = 1, band.count do
+            local card_index = ((index - 1) % #card_ids) + 1
+
+            slots[#slots + 1] = {
+                index = index,
+                burn = band.burn,
+                card = card_ids[card_index],
+            }
+            index = index + 1
+        end
+    end
+
+    return slots
+end
+
 function action_deck_logic.buildDrawPile(agent, action_deck_lookup, card_index, action_art_lookup)
     local draw_pile = {}
     action_art_lookup = action_art_lookup or {}

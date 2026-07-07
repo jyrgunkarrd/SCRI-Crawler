@@ -4,6 +4,7 @@ local pathfinding = require("src.sys.pathfinding")
 local fate_logic = require("src.sys.fate_logic")
 local action_deck_logic = require("src.sys.action_deck_logic")
 local burn_logic = require("src.sys.burn_logic")
+local block_logic = require("src.sys.block_logic")
 
 local card_play = {
     drag = nil,
@@ -109,8 +110,16 @@ local function getDamage(card)
     return math.max(0, math.floor(tonumber(getPlayFunc(card).dmg) or 0))
 end
 
+local function getBlock(card)
+    return math.max(0, math.floor(tonumber(getPlayFunc(card).blk) or 0))
+end
+
 local function hasDamage(card)
     return getPlayFunc(card).dmg ~= nil
+end
+
+local function hasBlock(card)
+    return getPlayFunc(card).blk ~= nil
 end
 
 local function hexDistance(a, b)
@@ -124,8 +133,12 @@ local function hexDistance(a, b)
     return math.max(math.abs(aq - bq), math.abs(ar - br), math.abs(as - bs))
 end
 
-local function matchesTarget(card, tile)
+local function matchesTarget(card, tile, source_tile)
     local target = getPlayFunc(card).targ
+
+    if target == "self" then
+        return tile == source_tile and tile and tile.agent ~= nil
+    end
 
     if target == "enemy" then
         return tile and tile.enemy ~= nil
@@ -138,8 +151,12 @@ local function matchesTarget(card, tile)
     return false
 end
 
-local function getTargetUnit(card, tile)
+local function getTargetUnit(card, tile, source_agent)
     local target = getPlayFunc(card).targ
+
+    if target == "self" then
+        return source_agent
+    end
 
     if target == "enemy" then
         return tile and tile.enemy or nil
@@ -167,12 +184,18 @@ local function eliminateTarget(room, target_tile, target_unit)
 end
 
 local function damageTarget(room, target_tile, target_unit, damage)
+    local original_damage = math.max(0, math.floor(tonumber(damage) or 0))
+    local blocked_amount = 0
+
+    damage, blocked_amount = block_logic.absorbDamage(target_unit, damage)
+
     if damage <= 0 or not target_unit then
         return {
             damaged = false,
             eliminated = false,
             burned = false,
-            blocked = target_unit ~= nil,
+            blocked = target_unit ~= nil and (blocked_amount > 0 or original_damage <= 0),
+            final_damage = 0,
         }
     end
 
@@ -190,6 +213,7 @@ local function damageTarget(room, target_tile, target_unit, damage)
                 eliminated = not survived_burn,
                 burned = survived_burn,
                 blocked = false,
+                final_damage = damage,
             }
         end
 
@@ -201,6 +225,7 @@ local function damageTarget(room, target_tile, target_unit, damage)
         eliminated = was_alive and hp.current <= 0,
         burned = false,
         blocked = false,
+        final_damage = damage,
     }
 end
 
@@ -260,7 +285,7 @@ function card_play.getOverlay(room)
         if hexDistance(drag.source_tile, tile) <= range then
             range_tiles[pathfinding.tileKey(tile)] = tile
 
-            if matchesTarget(drag.card, tile) then
+            if matchesTarget(drag.card, tile, drag.source_tile) then
                 target_tiles[pathfinding.tileKey(tile)] = tile
             end
         end
@@ -282,15 +307,26 @@ function card_play.release(room, x, y, camera_x, camera_y)
 
     local target_tile = getTileAtPoint(room, x, y, camera_x, camera_y)
 
-    if not target_tile or hexDistance(drag.source_tile, target_tile) > getRange(drag.card) or not matchesTarget(drag.card, target_tile) then
+    if not target_tile
+        or hexDistance(drag.source_tile, target_tile) > getRange(drag.card)
+        or not matchesTarget(drag.card, target_tile, drag.source_tile)
+    then
         return false, nil
     end
 
-    local target_unit = getTargetUnit(drag.card, target_tile)
+    local target_unit = getTargetUnit(drag.card, target_tile, drag.agent)
     local target_kind = target_tile.enemy == target_unit and "enemy" or "agent"
     local ap = getRuntimeStat(drag.agent, "ap")
 
     ap.current = math.max(0, ap.current - getCardCost(drag.card))
+
+    if hasBlock(drag.card) then
+        block_logic.addBlock(target_unit, getBlock(drag.card))
+        removeCardFromHand(drag.agent, drag.hand_index)
+        agent_logic.refreshMovementRange(room)
+        return true, nil
+    end
+
     local damage = getDamage(drag.card)
     local fate_card = nil
 
@@ -308,7 +344,7 @@ function card_play.release(room, x, y, camera_x, camera_y)
         target_kind = target_kind,
         card = drag.card,
         fate_card = fate_card,
-        damage = damage,
+        damage = result.final_damage or damage,
         damaged = result.damaged,
         eliminated = result.eliminated,
         burned = result.burned,

@@ -45,6 +45,7 @@ local state = {
     show_tile_labels = false,
     space_down = false,
     spawn_edit = nil,
+    door_edit = nil,
 }
 
 local function getSourceRoot()
@@ -274,6 +275,33 @@ local function getScreenCenter(q, r)
         y + love.graphics.getHeight() / 2 + state.camera_y
 end
 
+local function getDoorMidpoint(door)
+    local ax, ay = getScreenCenter(door.a.q, door.a.r)
+    local bx, by = getScreenCenter(door.b.q, door.b.r)
+
+    return (ax + bx) / 2, (ay + by) / 2
+end
+
+local function getDoorAtPoint(x, y)
+    local best_key = nil
+    local best_distance = math.huge
+    local hit_radius = HEX_SIZE * DOOR_RADIUS_RATIO + 8
+
+    for key, door in pairs(state.doors) do
+        local midpoint_x, midpoint_y = getDoorMidpoint(door)
+        local dx = x - midpoint_x
+        local dy = y - midpoint_y
+        local distance = math.sqrt(dx * dx + dy * dy)
+
+        if distance <= hit_radius and distance < best_distance then
+            best_key = key
+            best_distance = distance
+        end
+    end
+
+    return best_key and state.doors[best_key] or nil, best_key
+end
+
 local function setTile(q, r, value)
     local key = tileKey(q, r)
 
@@ -294,6 +322,10 @@ local function setTile(q, r, value)
         for door_id, door in pairs(state.doors) do
             if doorEndpointKey(door.a) == key or doorEndpointKey(door.b) == key then
                 state.doors[door_id] = nil
+
+                if state.door_edit and state.door_edit.key == door_id then
+                    state.door_edit = nil
+                end
             end
         end
 
@@ -366,6 +398,54 @@ local function cancelSpawnEventEdit()
     end
 end
 
+local function startDoorEventEdit(door_key, suppress_text)
+    local door = state.doors[door_key]
+
+    if not door then
+        state.message = "Door target no longer exists."
+        return
+    end
+
+    cancelConfirmation()
+    state.door_selection = nil
+    state.spawn_edit = nil
+    state.door_edit = {
+        key = door_key,
+        text = door.door_event or "",
+        suppress_text = suppress_text,
+        label = ("%d,%d <-> %d,%d"):format(door.a.q, door.a.r, door.b.q, door.b.r),
+    }
+    state.message = ("Door event %s: %s"):format(state.door_edit.label, state.door_edit.text)
+end
+
+local function commitDoorEventEdit()
+    if not state.door_edit then
+        return
+    end
+
+    local edit = state.door_edit
+    local door = state.doors[edit.key]
+
+    if door then
+        door.door_event = edit.text ~= "" and edit.text or nil
+        state.message = door.door_event
+            and ("Set door event %q"):format(door.door_event)
+            or "Cleared door event."
+        markDirty()
+    else
+        state.message = "Door target no longer exists."
+    end
+
+    state.door_edit = nil
+end
+
+local function cancelDoorEventEdit()
+    if state.door_edit then
+        state.door_edit = nil
+        state.message = "Door event edit cancelled."
+    end
+end
+
 local function applyBrush(x, y, value)
     local q, r = screenToTile(x, y)
 
@@ -409,6 +489,7 @@ local function toggleDoorAt(q, r)
     else
         state.doors[key] = { a = first, b = second }
         state.message = "Door placed."
+        startDoorEventEdit(key)
     end
 
     markDirty()
@@ -552,9 +633,16 @@ local function serializeMap(file_name)
 
     for _, key in ipairs(door_keys) do
         local door = state.doors[key]
+        local fields = {
+            ("a = { q = %d, r = %d }"):format(door.a.q, door.a.r),
+            ("b = { q = %d, r = %d }"):format(door.b.q, door.b.r),
+        }
 
-        lines[#lines + 1] = ("        { a = { q = %d, r = %d }, b = { q = %d, r = %d } },")
-            :format(door.a.q, door.a.r, door.b.q, door.b.r)
+        if door.door_event then
+            fields[#fields + 1] = ("door_event = %q"):format(door.door_event)
+        end
+
+        lines[#lines + 1] = "        { " .. table.concat(fields, ", ") .. " },"
     end
 
     lines[#lines + 1] = "    },"
@@ -683,10 +771,14 @@ local function loadMapFile(index)
             state.doors[doorKey(door.a, door.b)] = {
                 a = { q = door.a.q, r = door.a.r },
                 b = { q = door.b.q, r = door.b.r },
+                door_event = door.door_event,
             }
         end
     end
 
+    state.spawn_edit = nil
+    state.door_edit = nil
+    state.door_selection = nil
     state.message = ("Loaded %s"):format(state.active_file_name)
     markClean()
     print(state.message)
@@ -807,6 +899,9 @@ local function drawStatus()
     if state.spawn_edit then
         message = ("Spawn event q=%d r=%d: %s_   Enter save  Esc cancel")
             :format(state.spawn_edit.q, state.spawn_edit.r, state.spawn_edit.text)
+    elseif state.door_edit then
+        message = ("Door event %s: %s_   Enter save  Esc cancel")
+            :format(state.door_edit.label, state.door_edit.text)
     end
 
     local text = ("%s   Mode: %s   Palette: %d   Swatch: %d   File: %s   Tiles: %d")
@@ -883,6 +978,18 @@ function editor.keypressed(key)
         return
     end
 
+    if state.door_edit then
+        if key == "escape" then
+            cancelDoorEventEdit()
+        elseif key == "return" or key == "kpenter" then
+            commitDoorEventEdit()
+        elseif key == "backspace" then
+            state.door_edit.text = state.door_edit.text:sub(1, -2)
+        end
+
+        return
+    end
+
     if key == "escape" then
         if state.door_selection then
             state.door_selection = nil
@@ -944,6 +1051,9 @@ function editor.keypressed(key)
 
         state.tiles = {}
         state.doors = {}
+        state.spawn_edit = nil
+        state.door_edit = nil
+        state.door_selection = nil
         state.active_file_name = nil
         state.active_file_index = nil
         state.message = "Cleared map."
@@ -968,18 +1078,20 @@ function editor.keypressed(key)
 end
 
 function editor.textinput(text)
-    if not state.spawn_edit then
+    local edit = state.spawn_edit or state.door_edit
+
+    if not edit then
         return
     end
 
-    if state.spawn_edit.suppress_text and text:lower() == state.spawn_edit.suppress_text then
-        state.spawn_edit.suppress_text = nil
+    if edit.suppress_text and text:lower() == edit.suppress_text then
+        edit.suppress_text = nil
         return
     end
 
-    state.spawn_edit.suppress_text = nil
+    edit.suppress_text = nil
 
-    state.spawn_edit.text = state.spawn_edit.text .. text
+    edit.text = edit.text .. text
 end
 
 function editor.keyreleased(key)
@@ -989,7 +1101,7 @@ function editor.keyreleased(key)
 end
 
 function editor.mousepressed(x, y, button)
-    if state.spawn_edit then
+    if state.spawn_edit or state.door_edit then
         return
     end
 
@@ -1000,8 +1112,14 @@ function editor.mousepressed(x, y, button)
         toggleDoorAt(q, r)
     elseif state.paint_mode == "door" and button == 2 then
         cancelConfirmation()
-        state.door_selection = nil
-        state.message = "Door selection cancelled."
+        local _, door_key = getDoorAtPoint(x, y)
+
+        if door_key then
+            startDoorEventEdit(door_key)
+        else
+            state.door_selection = nil
+            state.message = "Door selection cancelled."
+        end
     elseif button == 1 and not state.space_down then
         cancelConfirmation()
         state.dragging = true
@@ -1028,7 +1146,7 @@ function editor.mousereleased(_, _, button)
 end
 
 function editor.mousemoved(x, y, dx, dy)
-    if state.spawn_edit then
+    if state.spawn_edit or state.door_edit then
         return
     end
 

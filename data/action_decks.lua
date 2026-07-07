@@ -8,7 +8,7 @@ local action_decks = {
     {
 
         id = "BSCDECK",
-        slots = action_deck_logic.buildSlots("ATK"),
+        slots = action_deck_logic.buildSplitSlots({ "ATK", "DFN" }),
 
     },
 

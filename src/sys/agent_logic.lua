@@ -4,6 +4,7 @@ local sfx_logic = require("src.sys.sfx_logic")
 local fate_logic = require("src.sys.fate_logic")
 local action_deck_logic = require("src.sys.action_deck_logic")
 local burn_logic = require("src.sys.burn_logic")
+local block_logic = require("src.sys.block_logic")
 
 local agent_logic = {
     selected_tile = nil,
@@ -578,6 +579,7 @@ function agent_logic.ensureRuntimeStats(agent)
     getRuntimeStat(agent, "ap")
     getRuntimeStat(agent, "hp")
     getRuntimeStat(agent, "lp")
+    block_logic.clearBlock(agent)
     fate_logic.initializeFateDeck(agent)
 end
 
@@ -661,6 +663,7 @@ function agent_logic.ensureEnemyRuntimeStats(enemy)
     getRuntimeStat(enemy, "atk")
     getRuntimeStat(enemy, "spd")
     getRuntimeStat(enemy, "rng")
+    block_logic.clearBlock(enemy)
 end
 
 function agent_logic.refreshMovementRange(room)

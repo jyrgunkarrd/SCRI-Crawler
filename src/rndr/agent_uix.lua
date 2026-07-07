@@ -4,6 +4,7 @@ local image_loader = require("src.assets.image_loader")
 local map_tiles = require("src.rndr.map_tiles")
 local action_deck_viewer = require("src.rndr.action_deck_viewer")
 local burn_palette = require("data.burn_palette")
+local block_logic = require("src.sys.block_logic")
 
 local agent_uix = {}
 
@@ -70,6 +71,7 @@ local FATE_SECTION_GAP = 14
 local FATE_ROW_H = 28
 local FATE_ROW_GAP = 6
 local FATE_FONT_SIZE = 16
+local BLOCK_ICON_FONT_SIZE = 22
 local DECK_BUTTON_SIZE = 74
 local DECK_BUTTON_GAP = 16
 local DECK_BUTTON_ICON_PAD = 14
@@ -80,8 +82,11 @@ local deck_icon = nil
 local missing_deck_icon = false
 local fate_font
 local burn_clock_font
+local block_icon_font
 local modal_unit = nil
 local modal_kind = nil
+local BLOCK_GLYPH = "\239\143\173"
+local BLOCK_COLOR = { 0.7412, 0.6824, 0.7176, 1 }
 local STAT_COLORS = {
     ap = { 1, 1, 1, 1 },
     hp = { 1, 0.2902, 0.4941, 1 },
@@ -346,7 +351,27 @@ local function drawBurnClock(agent)
     love.graphics.setLineWidth(previous_line_width)
 end
 
-local function drawStatValue(label, stat, color, index, pending_cost, stat_y)
+local function drawBlockInline(block_value, value_x, y)
+    local previous_font = love.graphics.getFont()
+    local number_text = tostring(math.max(0, math.floor(tonumber(block_value) or 0)))
+    local number_w = previous_font:getWidth(number_text)
+
+    if not block_icon_font then
+        block_icon_font = love.graphics.newFont("assets/fonts/icons.otf", BLOCK_ICON_FONT_SIZE)
+    end
+
+    local icon_w = block_icon_font:getWidth(BLOCK_GLYPH)
+    local block_w = icon_w + 5 + number_w
+    local block_x = value_x - block_w - 18
+
+    love.graphics.setColor(BLOCK_COLOR)
+    love.graphics.setFont(block_icon_font)
+    love.graphics.print(BLOCK_GLYPH, block_x, y - 1)
+    love.graphics.setFont(previous_font)
+    love.graphics.print(number_text, block_x + icon_w + 5, y)
+end
+
+local function drawStatValue(label, stat, color, index, pending_cost, stat_y, block_value)
     local current = math.floor(tonumber(stat and stat.current) or 0)
     local maximum = math.floor(tonumber(stat and stat.maximum) or 0)
 
@@ -360,6 +385,10 @@ local function drawStatValue(label, stat, color, index, pending_cost, stat_y)
 
     love.graphics.setColor(TEXT_COLOR)
     love.graphics.print(label, STAT_X, y)
+
+    if label == "HP" then
+        drawBlockInline(block_value or 0, value_x, y)
+    end
 
     if pending_cost and pending_cost > 0 then
         local cost_text = "-" .. tostring(pending_cost)
@@ -617,6 +646,7 @@ function agent_uix.draw()
     end
 
     local stats = agent_logic.getSelectedStats()
+    local block_value = block_logic.getBlock(unit)
     local preview = agent_logic.getMovementPreview()
     local pending_ap_cost = kind == "agent" and preview and preview.cost or nil
     local stat_order = kind == "enemy" and ENEMY_STAT_ORDER or AGENT_STAT_ORDER
@@ -641,7 +671,8 @@ function agent_uix.draw()
             STAT_COLORS[stat.id],
             index,
             stat.id == "ap" and pending_ap_cost or nil,
-            kind == "enemy" and ENEMY_STAT_Y or STAT_Y
+            kind == "enemy" and ENEMY_STAT_Y or STAT_Y,
+            stat.id == "hp" and block_value or nil
         )
     end
 

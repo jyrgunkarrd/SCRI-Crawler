@@ -23,7 +23,7 @@ local basic_cards = {
         name = "Defend",
         cost = 1,
         rarity = "common",
-        textbox = "Gain 3 block.\n\nSelf.",
+        textbox = "This Agent gains 3 block.",
         play_func = {
 
             targ = "self",

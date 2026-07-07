@@ -2,6 +2,7 @@ local map_tiles = {}
 local image_loader = require("src.assets.image_loader")
 local burn_palette = require("data.burn_palette")
 local sfx_logic = require("src.sys.sfx_logic")
+local block_logic = require("src.sys.block_logic")
 
 local HEX_SIZE = 54
 local SQRT_3 = math.sqrt(3)
@@ -24,12 +25,23 @@ local SHOUT_BOX_PAD_Y = 4
 local MOVE_EASE_OVERSHOOT = 1.04
 local ELIMINATION_ANIMATION_SECONDS = 0.55
 local ELIMINATION_MIN_SCALE = 0.72
+local BLOCK_GLYPH = "\239\143\173"
+local BLOCK_COLOR = { 0.7412, 0.6824, 0.7176, 1 }
+local BLOCK_OVERLAY_SIZE = 34
+local BLOCK_OVERLAY_FONT_SIZE = 25
+local BLOCK_OVERLAY_PULSE_SPEED = 3.2
+local BLOCK_OVERLAY_RING_SECONDS = 0.28
+local BLOCK_OVERLAY_RING_START_RADIUS = PORTRAIT_RADIUS * 0.56
+local BLOCK_OVERLAY_RING_END_RADIUS = PORTRAIT_RADIUS * 1.18
+local BLOCK_OVERLAY_RING_WIDTH = 5
 local agent_portraits = {}
 local missing_agent_portraits = {}
 local enemy_portraits = {}
 local missing_enemy_portraits = {}
 local agent_eliminations = {}
 local agent_elimination_sound_played = false
+local block_overlay_font = nil
+local block_overlay_states = setmetatable({}, { __mode = "k" })
 
 local function hexToColor(hex, alpha)
     if type(hex) ~= "string" or #hex < 6 then
@@ -193,6 +205,58 @@ local function drawHexPortrait(image, center_x, center_y, radius, color, outline
     love.graphics.setLineWidth(1)
 end
 
+local function drawBlockOverlay(unit, center_x, center_y)
+    if block_logic.getBlock(unit) <= 0 then
+        block_overlay_states[unit] = nil
+        return
+    end
+
+    if not block_overlay_font then
+        block_overlay_font = love.graphics.newFont("assets/fonts/icons.otf", BLOCK_OVERLAY_FONT_SIZE)
+    end
+
+    local state = block_overlay_states[unit]
+    local pulse_id = unit.block_pulse_id or 0
+
+    if not state then
+        state = { elapsed = 0, pulse_id = pulse_id }
+        block_overlay_states[unit] = state
+    elseif state.pulse_id ~= pulse_id then
+        state.elapsed = 0
+        state.pulse_id = pulse_id
+    end
+
+    local pulse = math.sin(love.timer.getTime() * BLOCK_OVERLAY_PULSE_SPEED) * 0.5 + 0.5
+
+    if state.elapsed < BLOCK_OVERLAY_RING_SECONDS then
+        local t = math.max(0, math.min(state.elapsed / BLOCK_OVERLAY_RING_SECONDS, 1))
+        local eased = 1 - (1 - t) * (1 - t) * (1 - t)
+        local ring_radius = BLOCK_OVERLAY_RING_START_RADIUS
+            + (BLOCK_OVERLAY_RING_END_RADIUS - BLOCK_OVERLAY_RING_START_RADIUS) * eased
+        local ring_alpha = 1 - t
+
+        love.graphics.setColor(BLOCK_COLOR[1], BLOCK_COLOR[2], BLOCK_COLOR[3], ring_alpha)
+        love.graphics.setLineWidth(BLOCK_OVERLAY_RING_WIDTH)
+        love.graphics.circle("line", center_x, center_y, ring_radius, 96)
+        love.graphics.setLineWidth(1)
+    end
+
+    local x = center_x - BLOCK_OVERLAY_SIZE / 2
+    local y = center_y - BLOCK_OVERLAY_SIZE / 2
+    local previous_font = love.graphics.getFont()
+
+    love.graphics.setColor(0, 0, 0, pulse)
+    love.graphics.rectangle("fill", x, y, BLOCK_OVERLAY_SIZE, BLOCK_OVERLAY_SIZE)
+    love.graphics.setColor(BLOCK_COLOR[1], BLOCK_COLOR[2], BLOCK_COLOR[3], pulse)
+    love.graphics.setFont(block_overlay_font)
+    love.graphics.print(
+        BLOCK_GLYPH,
+        center_x - block_overlay_font:getWidth(BLOCK_GLYPH) / 2,
+        center_y - block_overlay_font:getHeight() / 2 - 1
+    )
+    love.graphics.setFont(previous_font)
+end
+
 local function drawAgentPortraitTile(tile, center_x, center_y, selected)
     if not tile.agent then
         return
@@ -218,6 +282,7 @@ local function drawAgentPortraitTile(tile, center_x, center_y, selected)
     end
 
     drawHexPortrait(image, center_x, center_y, radius, color, PORTRAIT_OUTLINE_COLOR)
+    drawBlockOverlay(tile.agent, center_x, center_y)
 end
 
 local function drawEnemyPortraitTile(tile, center_x, center_y, selected)
@@ -249,6 +314,7 @@ local function drawEnemyPortraitTile(tile, center_x, center_y, selected)
         radius - ENEMY_PORTRAIT_OUTLINE_INSET,
         PORTRAIT_OUTLINE_COLOR
     )
+    drawBlockOverlay(tile.enemy, center_x, center_y)
 end
 
 local function drawMovingPortrait(unit, kind, center_x, center_y)
@@ -269,8 +335,10 @@ local function drawMovingPortrait(unit, kind, center_x, center_y)
             PORTRAIT_RADIUS - ENEMY_PORTRAIT_OUTLINE_INSET,
             PORTRAIT_OUTLINE_COLOR
         )
+        drawBlockOverlay(unit, center_x, center_y)
     else
         drawHexPortrait(image, center_x, center_y, PORTRAIT_RADIUS, { 1, 1, 1, 1 }, PORTRAIT_OUTLINE_COLOR)
+        drawBlockOverlay(unit, center_x, center_y)
     end
 end
 
@@ -394,6 +462,10 @@ end
 function map_tiles.update(dt)
     agent_elimination_sound_played = false
 
+    for _, state in pairs(block_overlay_states) do
+        state.elapsed = state.elapsed + dt
+    end
+
     for index = #agent_eliminations, 1, -1 do
         local animation = agent_eliminations[index]
 
@@ -430,6 +502,7 @@ end
 function map_tiles.clearAnimations()
     agent_eliminations = {}
     agent_elimination_sound_played = false
+    block_overlay_states = setmetatable({}, { __mode = "k" })
 end
 
 function map_tiles.drawMovingAgent(room, camera_x, camera_y, animation)

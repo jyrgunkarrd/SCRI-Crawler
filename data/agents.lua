@@ -38,6 +38,7 @@ local agents = {
         actions_art = {
             
             { cardid = "ATK", art = "MAM_ATK" },
+            { cardid = "DFN", art = "MAM_DFN" },
         
         },
         shout_select = "As a river bends.",
@@ -222,6 +223,7 @@ local agents = {
         actions_art = {
             
             { cardid = "ATK", art = "B6_ATK" },
+            { cardid = "DFN", art = "B6_DFN" },
         
         },
         shout_select = "They're dead already.",
@@ -262,6 +264,7 @@ local agents = {
         actions_art = {
             
             { cardid = "ATK", art = "TMW_ATK" },
+            { cardid = "DFN", art = "TMW_DFN" },
         
         },
         shout_select = "Good news?",
