@@ -435,7 +435,7 @@ local function drawDeckButton(layout)
     love.graphics.setColor(MODAL_FILL_COLOR)
     love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h)
     love.graphics.setColor(MODAL_BORDER_COLOR)
-    love.graphics.setLineWidth(5)
+    love.graphics.setLineWidth(3)
     love.graphics.rectangle("line", rect.x, rect.y, rect.w, rect.h)
     love.graphics.setLineWidth(1)
 

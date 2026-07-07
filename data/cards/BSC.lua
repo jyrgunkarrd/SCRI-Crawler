@@ -18,6 +18,20 @@ local basic_cards = {
         },
     },
 
+    {
+        id = "DFN",
+        name = "Defend",
+        cost = 1,
+        rarity = "common",
+        textbox = "Gain 3 block.\n\nSelf.",
+        play_func = {
+
+            targ = "self",
+            blk = "3",
+
+        },
+    },
+
 }
 
 return basic_cards
