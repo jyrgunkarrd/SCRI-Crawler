@@ -111,6 +111,7 @@ local phase_track = require("src.rndr.phase_track")
 local phase_rules = require("src.sys.phase_rules")
 local sfx_logic = require("src.sys.sfx_logic")
 local enemy_ai = require("src.sys.enemy_ai")
+local door_room_logic = require("src.sys.door_room_logic")
 
 local room
 local DEV_MAP_CONFIG_PATH = "data.dev_map"
@@ -299,6 +300,7 @@ local function loadMapFile()
         tiles = tiles,
     }
 
+    door_room_logic.initialize(loaded_room)
     populatePlayerAgents(loaded_room)
 
     return loaded_room
@@ -414,7 +416,7 @@ function love.draw()
         overlays.drawMovementPreview(room, camera_x, camera_y, agent_logic.getMovementPreview(), agent_logic.getSelectedAgent())
     end
     map_tiles.drawSelectionShout(room, camera_x, camera_y, agent_logic.getSelectedTile(), agent_logic.getSelectionShout())
-    overlays.drawDoors(room, camera_x, camera_y)
+    overlays.drawDoors(room, camera_x, camera_y, agent_logic.getSelectedDoor())
     overlays.drawExitMarkers(room, camera_x, camera_y)
     phase_track.draw(phase_rules.getRound(), phase_rules.getCurrentPhase(), phase_rules.isRoundFlashActive())
     agent_uix.draw()

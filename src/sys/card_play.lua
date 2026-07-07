@@ -5,6 +5,7 @@ local fate_logic = require("src.sys.fate_logic")
 local action_deck_logic = require("src.sys.action_deck_logic")
 local burn_logic = require("src.sys.burn_logic")
 local block_logic = require("src.sys.block_logic")
+local door_room_logic = require("src.sys.door_room_logic")
 
 local card_play = {
     drag = nil,
@@ -110,6 +111,10 @@ local function getDamage(card)
     return math.max(0, math.floor(tonumber(getPlayFunc(card).dmg) or 0))
 end
 
+local function getBypass(card)
+    return math.max(0, math.floor(tonumber(getPlayFunc(card).bp) or 0))
+end
+
 local function getBlock(card)
     return math.max(0, math.floor(tonumber(getPlayFunc(card).blk) or 0))
 end
@@ -118,19 +123,58 @@ local function hasDamage(card)
     return getPlayFunc(card).dmg ~= nil
 end
 
+local function hasBypass(card)
+    return getPlayFunc(card).bp ~= nil
+end
+
 local function hasBlock(card)
     return getPlayFunc(card).blk ~= nil
 end
 
-local function hexDistance(a, b)
-    local aq = a.q
-    local ar = a.r
-    local as = -aq - ar
-    local bq = b.q
-    local br = b.r
-    local bs = -bq - br
+local function buildRangePassability(room)
+    return function(tile, current)
+        return door_room_logic.canTraverseBetween(room, current, tile)
+    end
+end
 
-    return math.max(math.abs(aq - bq), math.abs(ar - br), math.abs(as - bs))
+local function isTileInRange(room, source_tile, target_tile, range)
+    if not source_tile or not target_tile then
+        return false
+    end
+
+    if pathfinding.tileKey(source_tile) == pathfinding.tileKey(target_tile) then
+        return range >= 0
+    end
+
+    local _, cost = pathfinding.findPath(room, source_tile, target_tile, {
+        isPassable = buildRangePassability(room),
+    })
+
+    return cost ~= nil and cost <= range
+end
+
+local function getTileByPosition(room, position)
+    if not room or not position then
+        return nil
+    end
+
+    local target_key = pathfinding.tileKey(position)
+
+    for _, tile in ipairs(room.tiles or {}) do
+        if pathfinding.tileKey(tile) == target_key then
+            return tile
+        end
+    end
+
+    return nil
+end
+
+local function isDoorBorderInRange(room, source_tile, door, range)
+    local endpoint_a = getTileByPosition(room, door and door.a)
+    local endpoint_b = getTileByPosition(room, door and door.b)
+
+    return isTileInRange(room, source_tile, endpoint_a, range)
+        or isTileInRange(room, source_tile, endpoint_b, range)
 end
 
 local function matchesTarget(card, tile, source_tile)
@@ -149,6 +193,25 @@ local function matchesTarget(card, tile, source_tile)
     end
 
     return false
+end
+
+local function canTargetDoor(card, door, source_tile, room)
+    if not door_room_logic.isLocked(door) then
+        return false
+    end
+
+    local target = getPlayFunc(card).targ
+
+    local has_valid_effect = (target == "enemy" and hasDamage(card))
+        or (target == "door" and hasBypass(card))
+
+    if not has_valid_effect then
+        return false
+    end
+
+    local range = getRange(card)
+
+    return isDoorBorderInRange(room, source_tile, door, range)
 end
 
 local function getTargetUnit(card, tile, source_agent)
@@ -229,6 +292,24 @@ local function damageTarget(room, target_tile, target_unit, damage)
     }
 end
 
+local function damageDoor(door, card, value)
+    local target = getPlayFunc(card).targ
+
+    if target == "enemy" and hasDamage(card) then
+        return door_room_logic.damageHp(door, value)
+    end
+
+    if target == "door" and hasBypass(card) then
+        return door_room_logic.damageBp(door, value)
+    end
+
+    return {
+        damaged = false,
+        unlocked = door_room_logic.isUnlocked(door),
+        final_damage = 0,
+    }
+end
+
 local function removeCardFromHand(agent, hand_index)
     action_deck_logic.discardFromHand(agent, hand_index)
 end
@@ -280,20 +361,37 @@ function card_play.getOverlay(room)
     local range = getRange(drag.card)
     local range_tiles = {}
     local target_tiles = {}
+    local target_doors = {}
+    local reachable = pathfinding.findReachable(room, drag.source_tile, range, {
+        isPassable = buildRangePassability(room),
+    })
 
-    for _, tile in ipairs(room.tiles) do
-        if hexDistance(drag.source_tile, tile) <= range then
-            range_tiles[pathfinding.tileKey(tile)] = tile
+    if range == 0 then
+        reachable[pathfinding.tileKey(drag.source_tile)] = {
+            tile = drag.source_tile,
+            cost = 0,
+        }
+    end
 
-            if matchesTarget(drag.card, tile, drag.source_tile) then
-                target_tiles[pathfinding.tileKey(tile)] = tile
-            end
+    for key, entry in pairs(reachable) do
+        local tile = entry.tile
+        range_tiles[key] = tile
+
+        if matchesTarget(drag.card, tile, drag.source_tile) then
+            target_tiles[key] = tile
+        end
+    end
+
+    for _, door in ipairs(room.doors or {}) do
+        if canTargetDoor(drag.card, door, drag.source_tile, room) then
+            target_doors[#target_doors + 1] = door
         end
     end
 
     return {
         range_tiles = range_tiles,
         target_tiles = target_tiles,
+        target_doors = target_doors,
     }
 end
 
@@ -305,10 +403,27 @@ function card_play.release(room, x, y, camera_x, camera_y)
         return false, nil
     end
 
+    local target_door = door_room_logic.getDoorAtPoint(room, x, y, camera_x, camera_y)
+
+    if target_door and canTargetDoor(drag.card, target_door, drag.source_tile, room) then
+        local ap = getRuntimeStat(drag.agent, "ap")
+        local value = getPlayFunc(drag.card).targ == "door" and getBypass(drag.card) or getDamage(drag.card)
+        local fate_card = nil
+
+        ap.current = math.max(0, ap.current - getCardCost(drag.card))
+
+        value, fate_card = fate_logic.applyDamageModifier(drag.agent, value)
+        damageDoor(target_door, drag.card, value)
+        removeCardFromHand(drag.agent, drag.hand_index)
+        agent_logic.refreshMovementRange(room)
+
+        return true, nil
+    end
+
     local target_tile = getTileAtPoint(room, x, y, camera_x, camera_y)
 
     if not target_tile
-        or hexDistance(drag.source_tile, target_tile) > getRange(drag.card)
+        or not isTileInRange(room, drag.source_tile, target_tile, getRange(drag.card))
         or not matchesTarget(drag.card, target_tile, drag.source_tile)
     then
         return false, nil

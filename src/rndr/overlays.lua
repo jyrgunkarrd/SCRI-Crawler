@@ -1,13 +1,23 @@
 local map_tiles = require("src.rndr.map_tiles")
+local door_room_logic = require("src.sys.door_room_logic")
 
 local overlays = {}
 
 local HOVER_COLOR = { 1, 1, 1, 0.16 }
 local EXIT_MARKER_COLOR = { 0.88, 0.78, 0.48, 0.9 }
 local EXIT_MARKER_RADIUS = 13
-local DOOR_FILL_COLOR = { 1, 1, 1, 1 }
+local DOOR_LOCKED_FILL_COLOR = { 1, 0, 0.2863, 1 }
+local DOOR_UNLOCKED_FILL_COLOR = { 0.4078, 0.6824, 0.5804, 1 }
 local DOOR_OUTLINE_COLOR = { 0.025, 0.02, 0.018, 1 }
 local DOOR_RADIUS = 14
+local DOOR_SELECTED_PULSE_SPEED = 3.6
+local DOOR_SELECTED_PULSE_AMOUNT = 0.12
+local DOOR_DAMAGE_PULSE_SECONDS = 0.32
+local DOOR_DAMAGE_PULSE_START_RADIUS = 18
+local DOOR_DAMAGE_PULSE_END_RADIUS = 42
+local DOOR_DAMAGE_PULSE_WIDTH = 5
+local DOOR_HP_PULSE_COLOR = { 1, 0, 0.2863, 1 }
+local DOOR_BP_PULSE_COLOR = { 0.4078, 0.6824, 0.5804, 1 }
 local MOVE_COLOR = { 1, 1, 1, 1 }
 local ZOC_COLOR = { 0.6118, 0, 0.0431, 1 }
 local CARD_TARGET_COLOR = { 1, 0.2902, 0.4902, 1 }
@@ -119,25 +129,54 @@ local function drawStableHighlight(points, color, alpha)
     love.graphics.setLineWidth(1)
 end
 
-function overlays.drawDoors(room, camera_x, camera_y)
+local function drawDoorDamagePulses(door, center_x, center_y)
+    if not door.damage_pulses then
+        return
+    end
+
+    local now = love.timer.getTime()
+
+    for index = #door.damage_pulses, 1, -1 do
+        local pulse = door.damage_pulses[index]
+        local elapsed = now - (pulse.started_at or now)
+
+        if elapsed >= DOOR_DAMAGE_PULSE_SECONDS then
+            table.remove(door.damage_pulses, index)
+        else
+            local t = math.max(0, math.min(elapsed / DOOR_DAMAGE_PULSE_SECONDS, 1))
+            local eased = 1 - (1 - t) * (1 - t) * (1 - t)
+            local radius = DOOR_DAMAGE_PULSE_START_RADIUS
+                + (DOOR_DAMAGE_PULSE_END_RADIUS - DOOR_DAMAGE_PULSE_START_RADIUS) * eased
+            local alpha = 1 - t
+            local color = pulse.stat == "bp" and DOOR_BP_PULSE_COLOR or DOOR_HP_PULSE_COLOR
+
+            love.graphics.setColor(color[1], color[2], color[3], alpha)
+            love.graphics.setLineWidth(DOOR_DAMAGE_PULSE_WIDTH)
+            love.graphics.circle("line", center_x, center_y, radius, 96)
+            love.graphics.setLineWidth(1)
+        end
+    end
+end
+
+function overlays.drawDoors(room, camera_x, camera_y, selected_door)
     if not room or not room.doors then
         return
     end
 
-    local offset_x, offset_y = getDrawOffset(room, camera_x, camera_y)
-
     for _, door in ipairs(room.doors) do
         if door.a and door.b then
-            local ax, ay = map_tiles.axialToPixel(door.a.q, door.a.r)
-            local bx, by = map_tiles.axialToPixel(door.b.q, door.b.r)
-            local midpoint_x = (ax + bx) / 2 + offset_x
-            local midpoint_y = (ay + by) / 2 + offset_y
+            local midpoint_x, midpoint_y = door_room_logic.getDoorCenter(room, door, camera_x, camera_y)
+            local pulse_scale = door == selected_door
+                and (1 + math.sin(love.timer.getTime() * DOOR_SELECTED_PULSE_SPEED) * DOOR_SELECTED_PULSE_AMOUNT)
+                or 1
+            local radius = DOOR_RADIUS * pulse_scale
 
-            love.graphics.setColor(DOOR_FILL_COLOR)
-            love.graphics.circle("fill", midpoint_x, midpoint_y, DOOR_RADIUS)
+            drawDoorDamagePulses(door, midpoint_x, midpoint_y)
+            love.graphics.setColor(door_room_logic.isUnlocked(door) and DOOR_UNLOCKED_FILL_COLOR or DOOR_LOCKED_FILL_COLOR)
+            love.graphics.circle("fill", midpoint_x, midpoint_y, radius)
             love.graphics.setColor(DOOR_OUTLINE_COLOR)
             love.graphics.setLineWidth(3)
-            love.graphics.circle("line", midpoint_x, midpoint_y, DOOR_RADIUS)
+            love.graphics.circle("line", midpoint_x, midpoint_y, radius)
         end
     end
 
@@ -247,7 +286,7 @@ function overlays.drawEnemyZonesOfControl(room, camera_x, camera_y, movement_ran
             for _, adjacent in ipairs(getAdjacentTiles(lookup, tile)) do
                 local key = tileKey(adjacent)
 
-                if movement_range[key] and not highlighted[key] then
+                if movement_range[key] and not highlighted[key] and door_room_logic.canTraverseBetween(room, tile, adjacent) then
                     local x, y = map_tiles.axialToPixel(adjacent.q, adjacent.r)
 
                     drawStableHighlight(
@@ -289,6 +328,21 @@ function overlays.drawCardPlayRange(room, camera_x, camera_y, overlay)
             CARD_TARGET_COLOR,
             CARD_TARGET_ALPHA
         )
+    end
+
+    for _, door in pairs(overlay.target_doors or {}) do
+        local x, y = door_room_logic.getDoorCenter(room, door, camera_x, camera_y)
+
+        if x and y then
+            love.graphics.setColor(OVERLAY_BACKING_COLOR)
+            love.graphics.circle("fill", x, y, DOOR_RADIUS + 8, 96)
+            love.graphics.setColor(CARD_TARGET_COLOR[1], CARD_TARGET_COLOR[2], CARD_TARGET_COLOR[3], CARD_TARGET_ALPHA)
+            love.graphics.circle("fill", x, y, DOOR_RADIUS + 8, 96)
+            love.graphics.setColor(OVERLAY_OUTLINE_COLOR)
+            love.graphics.setLineWidth(OVERLAY_OUTLINE_W)
+            love.graphics.circle("line", x, y, DOOR_RADIUS + 8, 96)
+            love.graphics.setLineWidth(1)
+        end
     end
 
     love.graphics.setColor(1, 1, 1, 1)

@@ -5,11 +5,13 @@ local fate_logic = require("src.sys.fate_logic")
 local action_deck_logic = require("src.sys.action_deck_logic")
 local burn_logic = require("src.sys.burn_logic")
 local block_logic = require("src.sys.block_logic")
+local door_room_logic = require("src.sys.door_room_logic")
 
 local agent_logic = {
     selected_tile = nil,
     selected_agent = nil,
     selected_enemy = nil,
+    selected_door = nil,
     shout = nil,
     movement = {
         range = {},
@@ -181,7 +183,9 @@ local function buildEnemyZoneLookup(room)
     for _, tile in ipairs(room.tiles or {}) do
         if tile.enemy then
             for _, neighbor in ipairs(pathfinding.getNeighbors(room, tile)) do
-                zone[pathfinding.tileKey(neighbor)] = true
+                if door_room_logic.canTraverseBetween(room, tile, neighbor) then
+                    zone[pathfinding.tileKey(neighbor)] = true
+                end
             end
         end
     end
@@ -194,6 +198,10 @@ local function buildMovementPassability(room, start_tile)
     local start_key = pathfinding.tileKey(start_tile)
 
     return function(neighbor, current)
+        if not door_room_logic.canTraverseBetween(room, current, neighbor) then
+            return false
+        end
+
         if neighbor.enemy then
             return false
         end
@@ -208,8 +216,12 @@ local function buildMovementPassability(room, start_tile)
     end
 end
 
-local function buildEnemyMovementPassability(start_tile)
-    return function(tile)
+local function buildEnemyMovementPassability(room, start_tile)
+    return function(tile, current)
+        if current and not door_room_logic.canTraverseBetween(room, current, tile) then
+            return false
+        end
+
         if tile == start_tile then
             return true
         end
@@ -218,15 +230,10 @@ local function buildEnemyMovementPassability(start_tile)
     end
 end
 
-local function hexDistance(a, b)
-    local aq = a.q
-    local ar = a.r
-    local as = -aq - ar
-    local bq = b.q
-    local br = b.r
-    local bs = -bq - br
-
-    return math.max(math.abs(aq - bq), math.abs(ar - br), math.abs(as - bs))
+local function buildRangePassability(room)
+    return function(tile, current)
+        return door_room_logic.canTraverseBetween(room, current, tile)
+    end
 end
 
 local function refreshEnemyOverlay(room)
@@ -241,7 +248,7 @@ local function refreshEnemyOverlay(room)
     local range = math.max(0, math.floor(tonumber(getStatValue(agent_logic.selected_enemy, "rng")) or 0))
     local selected_key = pathfinding.tileKey(agent_logic.selected_tile)
     local reachable = pathfinding.findReachable(room, agent_logic.selected_tile, speed, {
-        isPassable = buildEnemyMovementPassability(agent_logic.selected_tile),
+        isPassable = buildEnemyMovementPassability(room, agent_logic.selected_tile),
     })
 
     for key, entry in pairs(reachable) do
@@ -252,10 +259,15 @@ local function refreshEnemyOverlay(room)
 
     for _, entry in pairs(reachable) do
         if entry.tile == agent_logic.selected_tile or not entry.tile.enemy then
-            for _, tile in ipairs(room.tiles or {}) do
+            local threatened = pathfinding.findReachable(room, entry.tile, range, {
+                isPassable = buildRangePassability(room),
+            })
+
+            for _, range_entry in pairs(threatened) do
+                local tile = range_entry.tile
                 local key = pathfinding.tileKey(tile)
 
-                if key ~= selected_key and not agent_logic.enemy_overlay.movement[key] and hexDistance(entry.tile, tile) <= range then
+                if key ~= selected_key and not agent_logic.enemy_overlay.movement[key] then
                     agent_logic.enemy_overlay.threat[key] = {
                         tile = tile,
                     }
@@ -357,6 +369,7 @@ function agent_logic.clearSelection()
     agent_logic.selected_tile = nil
     agent_logic.selected_agent = nil
     agent_logic.selected_enemy = nil
+    agent_logic.selected_door = nil
     agent_logic.shout = nil
     agent_logic.movement.range = {}
     agent_logic.movement.preview = nil
@@ -371,6 +384,7 @@ function agent_logic.selectAgent(agent, tile, room)
 
     agent_logic.selected_agent = agent
     agent_logic.selected_enemy = nil
+    agent_logic.selected_door = nil
     agent_logic.selected_tile = tile
     agent_logic.shout = {
         text = shout_text,
@@ -387,11 +401,25 @@ end
 function agent_logic.selectEnemy(enemy, tile, room)
     agent_logic.selected_agent = nil
     agent_logic.selected_enemy = enemy
+    agent_logic.selected_door = nil
     agent_logic.selected_tile = tile
     agent_logic.shout = nil
     agent_logic.movement.range = {}
     agent_logic.movement.preview = nil
     refreshEnemyOverlay(room)
+    sfx_logic.playNamed("token_select")
+end
+
+function agent_logic.selectDoor(door)
+    agent_logic.selected_agent = nil
+    agent_logic.selected_enemy = nil
+    agent_logic.selected_door = door
+    agent_logic.selected_tile = nil
+    agent_logic.shout = nil
+    agent_logic.movement.range = {}
+    agent_logic.movement.preview = nil
+    agent_logic.enemy_overlay.movement = {}
+    agent_logic.enemy_overlay.threat = {}
     sfx_logic.playNamed("token_select")
 end
 
@@ -457,6 +485,13 @@ function agent_logic.handleMousePressed(room, x, y, button, camera_x, camera_y)
         return false
     end
 
+    local door = door_room_logic.getDoorAtPoint(room, x, y, camera_x, camera_y)
+
+    if door then
+        agent_logic.selectDoor(door)
+        return true
+    end
+
     local tile = getTileAtPoint(room, x, y, camera_x, camera_y)
 
     if tile and tile.agent then
@@ -507,6 +542,10 @@ function agent_logic.getSelectedEnemy()
     return agent_logic.selected_enemy
 end
 
+function agent_logic.getSelectedDoor()
+    return agent_logic.selected_door
+end
+
 function agent_logic.getSelectedUnit()
     if agent_logic.selected_agent then
         return agent_logic.selected_agent, "agent"
@@ -514,6 +553,10 @@ function agent_logic.getSelectedUnit()
 
     if agent_logic.selected_enemy then
         return agent_logic.selected_enemy, "enemy"
+    end
+
+    if agent_logic.selected_door then
+        return agent_logic.selected_door, "door"
     end
 
     return nil, nil
@@ -558,6 +601,7 @@ end
 function agent_logic.getSelectedStats()
     local agent = agent_logic.getSelectedAgent()
     local enemy = agent_logic.getSelectedEnemy()
+    local door = agent_logic.getSelectedDoor()
 
     if enemy then
         return {
@@ -566,6 +610,10 @@ function agent_logic.getSelectedStats()
             spd = getRuntimeStat(enemy, "spd"),
             rng = getRuntimeStat(enemy, "rng"),
         }
+    end
+
+    if door then
+        return door_room_logic.getStats(door)
     end
 
     return {

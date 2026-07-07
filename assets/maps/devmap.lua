@@ -1,5 +1,5 @@
 return {
-    id = "map_003",
+    id = "map_004",
     tiles = {
         { q = 3, r = -6, palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },
         { q = 4, r = -6, palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },
@@ -88,7 +88,8 @@ return {
         { q = -4, r = 4, spawn_event = "FORG", palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },
     },
     doors = {
-        { a = { q = 2, r = 0 }, b = { q = 3, r = -1 } },
-        { a = { q = 3, r = 0 }, b = { q = 3, r = -1 } },
+        { a = { q = -3, r = 1 }, b = { q = -2, r = 1 }, door_event = "secdoor1" },
+        { a = { q = 2, r = 0 }, b = { q = 3, r = -1 }, door_event = "secdoor1" },
+        { a = { q = 3, r = 0 }, b = { q = 3, r = -1 }, door_event = "secdoor1" },
     },
 }

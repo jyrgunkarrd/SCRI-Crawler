@@ -94,6 +94,7 @@ local STAT_COLORS = {
     atk = { 0.9961, 0.3373, 0.1765, 1 },
     spd = { 1, 1, 1, 1 },
     rng = { 1, 0.8706, 0.3137, 1 },
+    bp = { 0.7255, 0.8, 0.6667, 1 },
 }
 local AGENT_STAT_ORDER = {
     { id = "ap", label = "AP" },
@@ -105,6 +106,10 @@ local ENEMY_STAT_ORDER = {
     { id = "atk", label = "ATK" },
     { id = "spd", label = "SPD" },
     { id = "rng", label = "RNG" },
+}
+local DOOR_STAT_ORDER = {
+    { id = "hp", label = "HP" },
+    { id = "bp", label = "BP" },
 }
 
 local function pointInRect(x, y, rect_x, rect_y, rect_w, rect_h)
@@ -371,9 +376,11 @@ local function drawBlockInline(block_value, value_x, y)
     love.graphics.print(number_text, block_x + icon_w + 5, y)
 end
 
-local function drawStatValue(label, stat, color, index, pending_cost, stat_y, block_value)
+local function drawStatValue(label, stat, color, index, pending_cost, stat_y, block_value, stat_x, stat_w)
     local current = math.floor(tonumber(stat and stat.current) or 0)
     local maximum = math.floor(tonumber(stat and stat.maximum) or 0)
+    stat_x = stat_x or STAT_X
+    stat_w = stat_w or CONTENT_W
 
     local y = (stat_y or STAT_Y) + (index - 1) * STAT_ROW_H
     local value_text = (label == "ATK" or label == "SPD" or label == "RNG")
@@ -381,12 +388,12 @@ local function drawStatValue(label, stat, color, index, pending_cost, stat_y, bl
         or ("%d / %d"):format(current, maximum)
     local font = love.graphics.getFont()
     local value_w = font:getWidth(value_text)
-    local value_x = STAT_X + CONTENT_W - value_w
+    local value_x = stat_x + stat_w - value_w
 
     love.graphics.setColor(TEXT_COLOR)
-    love.graphics.print(label, STAT_X, y)
+    love.graphics.print(label, stat_x, y)
 
-    if label == "HP" then
+    if label == "HP" and (tonumber(block_value) or 0) > 0 then
         drawBlockInline(block_value or 0, value_x, y)
     end
 
@@ -649,20 +656,27 @@ function agent_uix.draw()
     local block_value = block_logic.getBlock(unit)
     local preview = agent_logic.getMovementPreview()
     local pending_ap_cost = kind == "agent" and preview and preview.cost or nil
-    local stat_order = kind == "enemy" and ENEMY_STAT_ORDER or AGENT_STAT_ORDER
-    local fallback_label = kind == "enemy" and "Enemy" or "Agent"
+    local stat_order = kind == "door" and DOOR_STAT_ORDER
+        or kind == "enemy" and ENEMY_STAT_ORDER
+        or AGENT_STAT_ORDER
+    local fallback_label = kind == "door" and "Door" or kind == "enemy" and "Enemy" or "Agent"
+    local stat_y = kind == "enemy" and ENEMY_STAT_Y or STAT_Y
+    local content_x = kind == "door" and PANEL_X + PANEL_PAD or CONTENT_X
+    local content_w = kind == "door" and PANEL_W - PANEL_PAD * 2 or CONTENT_W
 
     love.graphics.setColor(PANEL_COLOR)
     love.graphics.rectangle("fill", PANEL_X, PANEL_Y, PANEL_W, PANEL_H)
 
-    drawPortrait(unit, kind)
+    if kind ~= "door" then
+        drawPortrait(unit, kind)
+    end
 
     if kind == "agent" then
         drawBurnClock(unit)
     end
 
     love.graphics.setColor(TEXT_COLOR)
-    love.graphics.print(unit.name or unit.id or fallback_label, CONTENT_X, CONTENT_Y)
+    love.graphics.print(unit.name or unit.id or fallback_label, content_x, CONTENT_Y)
 
     for index, stat in ipairs(stat_order) do
         drawStatValue(
@@ -671,14 +685,18 @@ function agent_uix.draw()
             STAT_COLORS[stat.id],
             index,
             stat.id == "ap" and pending_ap_cost or nil,
-            kind == "enemy" and ENEMY_STAT_Y or STAT_Y,
-            stat.id == "hp" and block_value or nil
+            stat_y,
+            kind ~= "door" and stat.id == "hp" and block_value or nil,
+            content_x,
+            content_w
         )
     end
 
     love.graphics.setColor(1, 1, 1, 1)
 
-    drawFateModal()
+    if kind ~= "door" then
+        drawFateModal()
+    end
 end
 
 function agent_uix.mousepressed(x, y, button)
@@ -714,7 +732,7 @@ function agent_uix.mousepressed(x, y, button)
 
     local unit, kind = agent_logic.getSelectedUnit()
 
-    if unit and pointInRect(x, y, PORTRAIT_BOX_X, PORTRAIT_BOX_Y, PORTRAIT_BOX_SIZE, PORTRAIT_BOX_SIZE) then
+    if unit and kind ~= "door" and pointInRect(x, y, PORTRAIT_BOX_X, PORTRAIT_BOX_Y, PORTRAIT_BOX_SIZE, PORTRAIT_BOX_SIZE) then
         modal_unit = unit
         modal_kind = kind
         return true

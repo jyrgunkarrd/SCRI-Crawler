@@ -258,13 +258,14 @@ local agents = {
         fate = "BSCSTACK",
         actions = {
 
-            "BSCDECK",
+            "BSCSLYDECK",
 
         },
         actions_art = {
             
             { cardid = "ATK", art = "TMW_ATK" },
             { cardid = "DFN", art = "TMW_DFN" },
+            { cardid = "BYP", art = "TMW_BYP" },
         
         },
         shout_select = "Good news?",

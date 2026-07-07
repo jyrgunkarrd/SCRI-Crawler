@@ -3,6 +3,7 @@ local pathfinding = require("src.sys.pathfinding")
 local map_tiles = require("src.rndr.map_tiles")
 local burn_logic = require("src.sys.burn_logic")
 local block_logic = require("src.sys.block_logic")
+local door_room_logic = require("src.sys.door_room_logic")
 
 local enemy_ai = {}
 
@@ -38,17 +39,6 @@ local function getRuntimeStat(unit, stat_name)
     end
 
     return unit.runtime_stats[stat_name]
-end
-
-local function hexDistance(a, b)
-    local aq = a.q
-    local ar = a.r
-    local as = -aq - ar
-    local bq = b.q
-    local br = b.r
-    local bs = -bq - br
-
-    return math.max(math.abs(aq - bq), math.abs(ar - br), math.abs(as - bs))
 end
 
 local function getAgentTiles(room)
@@ -88,6 +78,7 @@ local function getCurrentHp(agent)
 end
 
 local isPassableForEnemy
+local isRangePassable
 
 local function findTargetTile(room, enemy_tile)
     local best_tile = nil
@@ -96,29 +87,57 @@ local function findTargetTile(room, enemy_tile)
 
     for _, tile in ipairs(getAgentTiles(room)) do
         local _, path_cost = pathfinding.findPath(room, enemy_tile, tile, {
-            isPassable = isPassableForEnemy(enemy_tile),
+            isPassable = isPassableForEnemy(room, enemy_tile),
         })
-        local distance = path_cost or hexDistance(enemy_tile, tile)
-        local hp = getCurrentHp(tile.agent)
 
-        if distance < best_distance or (distance == best_distance and hp < best_hp) then
-            best_tile = tile
-            best_distance = distance
-            best_hp = hp
+        if path_cost then
+            local hp = getCurrentHp(tile.agent)
+
+            if path_cost < best_distance or (path_cost == best_distance and hp < best_hp) then
+                best_tile = tile
+                best_distance = path_cost
+                best_hp = hp
+            end
         end
     end
 
     return best_tile
 end
 
-function isPassableForEnemy(enemy_tile)
-    return function(tile, _, goal_tile)
+function isPassableForEnemy(room, enemy_tile)
+    return function(tile, current, goal_tile)
+        if current and not door_room_logic.canTraverseBetween(room, current, tile) then
+            return false
+        end
+
         if tile == enemy_tile or tile == goal_tile then
             return true
         end
 
         return not tile.agent
     end
+end
+
+function isRangePassable(room)
+    return function(tile, current)
+        return door_room_logic.canTraverseBetween(room, current, tile)
+    end
+end
+
+local function isTileInRange(room, origin_tile, target_tile, range)
+    if not origin_tile or not target_tile then
+        return false
+    end
+
+    if pathfinding.tileKey(origin_tile) == pathfinding.tileKey(target_tile) then
+        return true
+    end
+
+    local _, cost = pathfinding.findPath(room, origin_tile, target_tile, {
+        isPassable = isRangePassable(room),
+    })
+
+    return cost ~= nil and cost <= range
 end
 
 local function getFurthestOpenStep(path, speed, fallback_tile)
@@ -140,11 +159,9 @@ local function findBestApproach(room, enemy_tile, target_tile, speed, range)
     local best_cost = math.huge
 
     for _, tile in ipairs(room and room.tiles or {}) do
-        local target_distance = hexDistance(tile, target_tile)
-
-        if target_distance <= range and (tile == enemy_tile or (not tile.agent and not tile.enemy)) then
+        if isTileInRange(room, tile, target_tile, range) and (tile == enemy_tile or (not tile.agent and not tile.enemy)) then
             local path, cost = pathfinding.findPath(room, enemy_tile, tile, {
-                isPassable = isPassableForEnemy(enemy_tile),
+                isPassable = isPassableForEnemy(room, enemy_tile),
             })
 
             if path and cost and cost < best_cost then
@@ -156,7 +173,7 @@ local function findBestApproach(room, enemy_tile, target_tile, speed, range)
 
     if not best_path then
         local path = pathfinding.findPath(room, enemy_tile, target_tile, {
-            isPassable = isPassableForEnemy(enemy_tile),
+            isPassable = isPassableForEnemy(room, enemy_tile),
         })
         best_path = path
     end
@@ -300,7 +317,7 @@ function enemy_ai.takeNextAction(room)
 
             target_tile = findTargetTile(room, enemy_tile)
 
-            if not target_tile or hexDistance(enemy_tile, target_tile) > range then
+            if not target_tile or not isTileInRange(room, enemy_tile, target_tile, range) then
                 enemy.exhausted = true
                 return nil
             end

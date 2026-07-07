@@ -42,6 +42,7 @@ local state = {
     dirty = false,
     confirm_action = nil,
     confirm_target = nil,
+    pending_load = nil,
     show_tile_labels = false,
     space_down = false,
     spawn_edit = nil,
@@ -151,6 +152,7 @@ local function markDirty()
     state.dirty = true
     state.confirm_action = nil
     state.confirm_target = nil
+    state.pending_load = nil
 end
 
 local function markClean()
@@ -176,6 +178,7 @@ end
 local function cancelConfirmation()
     state.confirm_action = nil
     state.confirm_target = nil
+    state.pending_load = nil
 end
 
 local function tileKey(q, r)
@@ -579,6 +582,24 @@ local function writeFile(path, data)
     return true
 end
 
+local function updateActiveFileAfterSave(file_name)
+    state.active_file_name = file_name
+    scanMapFiles()
+
+    for index, map_file in ipairs(state.map_files) do
+        if map_file == file_name then
+            state.active_file_index = index
+            break
+        end
+    end
+
+    if file_name == ("map_%03d.lua"):format(state.export_index) then
+        state.export_index = state.export_index + 1
+    end
+
+    markClean()
+end
+
 local function serializeMap(file_name)
     local lines = {
         "return {",
@@ -652,6 +673,23 @@ local function serializeMap(file_name)
     return table.concat(lines, "\n")
 end
 
+local function saveCurrentMap()
+    local path, file_name = getExportPath()
+    local ok, err = writeFile(path, serializeMap(file_name))
+
+    if not ok then
+        state.message = "Save failed: " .. tostring(err)
+        print(state.message)
+        return false
+    end
+
+    state.message = "Saved " .. joinPath(OUTPUT_DIR, file_name)
+    updateActiveFileAfterSave(file_name)
+    print(state.message)
+
+    return true
+end
+
 local function exportMap()
     local path, file_name = getExportPath()
 
@@ -672,21 +710,7 @@ local function exportMap()
     end
 
     state.message = "Exported " .. joinPath(OUTPUT_DIR, file_name)
-    state.active_file_name = file_name
-    scanMapFiles()
-
-    for index, map_file in ipairs(state.map_files) do
-        if map_file == file_name then
-            state.active_file_index = index
-            break
-        end
-    end
-
-    if file_name == ("map_%03d.lua"):format(state.export_index) then
-        state.export_index = state.export_index + 1
-    end
-
-    markClean()
+    updateActiveFileAfterSave(file_name)
     print(state.message)
 end
 
@@ -702,37 +726,17 @@ local function saveAsMap()
     end
 
     state.message = "Saved as " .. joinPath(OUTPUT_DIR, file_name)
-    state.active_file_name = file_name
-    scanMapFiles()
-
-    for index, map_file in ipairs(state.map_files) do
-        if map_file == file_name then
-            state.active_file_index = index
-            break
-        end
-    end
-
-    state.export_index = state.export_index + 1
-    markClean()
+    updateActiveFileAfterSave(file_name)
     print(state.message)
 end
 
-local function loadMapFile(index)
+local function performLoadMapFile(next_index, next_file_name)
     scanMapFiles()
 
-    if #state.map_files == 0 then
-        state.message = "No map files in " .. OUTPUT_DIR
-        return
-    end
-
-    local next_index = ((index - 1) % #state.map_files) + 1
-    local next_file_name = state.map_files[next_index]
-
-    if state.dirty then
-        local message = ("Unsaved changes. Press load again to discard and load %s."):format(next_file_name)
-
-        if not requestConfirmation("load", next_file_name, message) then
-            return
+    for index, map_file in ipairs(state.map_files) do
+        if map_file == next_file_name then
+            next_index = index
+            break
         end
     end
 
@@ -779,9 +783,34 @@ local function loadMapFile(index)
     state.spawn_edit = nil
     state.door_edit = nil
     state.door_selection = nil
+    state.pending_load = nil
     state.message = ("Loaded %s"):format(state.active_file_name)
     markClean()
     print(state.message)
+end
+
+local function loadMapFile(index)
+    scanMapFiles()
+
+    if #state.map_files == 0 then
+        state.message = "No map files in " .. OUTPUT_DIR
+        return
+    end
+
+    local next_index = ((index - 1) % #state.map_files) + 1
+    local next_file_name = state.map_files[next_index]
+
+    if state.dirty then
+        state.pending_load = {
+            index = next_index,
+            file_name = next_file_name,
+        }
+        state.message = ("Unsaved changes. Enter saves then loads %s. Press load again to discard. Esc cancels.")
+            :format(next_file_name)
+        return
+    end
+
+    performLoadMapFile(next_index, next_file_name)
 end
 
 local function drawGrid()
@@ -990,6 +1019,26 @@ function editor.keypressed(key)
         return
     end
 
+    if state.pending_load then
+        local pending_load = state.pending_load
+
+        if key == "escape" then
+            state.pending_load = nil
+            state.message = "Load cancelled."
+        elseif key == "return" or key == "kpenter" then
+            if saveCurrentMap() then
+                performLoadMapFile(pending_load.index, pending_load.file_name)
+            end
+        elseif key == "l" or key == "[" or key == "]" then
+            performLoadMapFile(pending_load.index, pending_load.file_name)
+        else
+            state.message = ("Unsaved changes. Enter saves then loads %s. Press load again to discard. Esc cancels.")
+                :format(pending_load.file_name)
+        end
+
+        return
+    end
+
     if key == "escape" then
         if state.door_selection then
             state.door_selection = nil
@@ -1101,7 +1150,7 @@ function editor.keyreleased(key)
 end
 
 function editor.mousepressed(x, y, button)
-    if state.spawn_edit or state.door_edit then
+    if state.spawn_edit or state.door_edit or state.pending_load then
         return
     end
 
@@ -1146,7 +1195,7 @@ function editor.mousereleased(_, _, button)
 end
 
 function editor.mousemoved(x, y, dx, dy)
-    if state.spawn_edit or state.door_edit then
+    if state.spawn_edit or state.door_edit or state.pending_load then
         return
     end
 

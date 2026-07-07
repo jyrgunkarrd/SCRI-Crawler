@@ -12,8 +12,8 @@ local basic_cards = {
         play_func = {
 
             targ = "enemy",
-            dmg = "3",
-            rng = "1",
+            dmg = 3,
+            rng = 1,
 
         },
     },
@@ -27,7 +27,22 @@ local basic_cards = {
         play_func = {
 
             targ = "self",
-            blk = "3",
+            blk = 3,
+
+        },
+    },
+
+    {
+        id = "BYP",
+        name = "Bypass",
+        cost = 0,
+        rarity = "common",
+        textbox = "Deal 3 Bypass damage to a door, hazard or terminal.",
+        play_func = {
+
+            targ = "door",
+            bp = 3,
+            rng = 1,
 
         },
     },
