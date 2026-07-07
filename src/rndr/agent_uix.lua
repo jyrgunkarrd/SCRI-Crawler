@@ -47,6 +47,7 @@ local FATE_BAD_COLOR = { 1, 0.2784, 0.2706, 1 }
 local FATE_CRIT_COLOR = { 1, 0.1686, 0.9922, 1 }
 local AGENT_IMAGE_DIR = "assets/images/agents"
 local ENEMY_IMAGE_DIR = "assets/images/enemy"
+local HAZARD_IMAGE_DIR = "assets/images/hazard"
 local ENEMY_OUTLINE_COLOR = { 0.6118, 0, 0.0431, 1 }
 local MODAL_GAP = 18
 local MODAL_H = 560
@@ -111,6 +112,12 @@ local DOOR_STAT_ORDER = {
     { id = "hp", label = "HP" },
     { id = "bp", label = "BP" },
 }
+local HAZARD_STAT_ORDER = {
+    { id = "hp", label = "HP" },
+    { id = "bp", label = "BP" },
+    { id = "atk", label = "ATK" },
+    { id = "rng", label = "RNG" },
+}
 
 local function pointInRect(x, y, rect_x, rect_y, rect_w, rect_h)
     return x >= rect_x and x <= rect_x + rect_w and y >= rect_y and y <= rect_y + rect_h
@@ -156,6 +163,10 @@ local function getEnemyModalLayout()
 end
 
 local function getImageDir(kind)
+    if kind == "hazard" then
+        return HAZARD_IMAGE_DIR
+    end
+
     return kind == "enemy" and ENEMY_IMAGE_DIR or AGENT_IMAGE_DIR
 end
 
@@ -263,11 +274,15 @@ local function buildCircleSegmentPoints(center_x, center_y, radius, start_angle,
 end
 
 local function drawPortrait(unit, kind)
-    local image = kind == "enemy" and map_tiles.getEnemyPortrait(unit) or map_tiles.getAgentPortrait(unit)
+    local image = kind == "hazard" and map_tiles.getHazardPortrait(unit)
+        or kind == "enemy" and map_tiles.getEnemyPortrait(unit)
+        or map_tiles.getAgentPortrait(unit)
     local center_x = PORTRAIT_BOX_X + PORTRAIT_BOX_SIZE / 2
     local center_y = PORTRAIT_BOX_Y + PORTRAIT_BOX_SIZE / 2
     local points = buildHexPoints(center_x, center_y, PORTRAIT_RADIUS)
-    local outline_color = kind == "enemy" and ENEMY_OUTLINE_COLOR or OUTLINE_COLOR
+    local outline_color = kind == "enemy" and ENEMY_OUTLINE_COLOR
+        or kind == "hazard" and { 0.9765, 0.6314, 0, 1 }
+        or OUTLINE_COLOR
 
     love.graphics.setColor(0.035, 0.032, 0.028, 1)
     love.graphics.rectangle("fill", PORTRAIT_BOX_X, PORTRAIT_BOX_Y, PORTRAIT_BOX_SIZE, PORTRAIT_BOX_SIZE)
@@ -628,14 +643,14 @@ local function drawFateModal()
         return
     end
 
-    local layout = modal_kind == "enemy" and getEnemyModalLayout() or getModalLayout()
+    local layout = (modal_kind == "enemy" or modal_kind == "hazard") and getEnemyModalLayout() or getModalLayout()
 
     love.graphics.setColor(MODAL_BACKDROP_COLOR)
     love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
 
     drawFullImageWindow(modal_unit, modal_kind, layout)
 
-    if modal_kind ~= "enemy" then
+    if modal_kind ~= "enemy" and modal_kind ~= "hazard" then
         drawDeckButton(layout)
         drawSlotWindow(modal_unit, layout)
     end
@@ -657,10 +672,11 @@ function agent_uix.draw()
     local preview = agent_logic.getMovementPreview()
     local pending_ap_cost = kind == "agent" and preview and preview.cost or nil
     local stat_order = kind == "door" and DOOR_STAT_ORDER
+        or kind == "hazard" and HAZARD_STAT_ORDER
         or kind == "enemy" and ENEMY_STAT_ORDER
         or AGENT_STAT_ORDER
-    local fallback_label = kind == "door" and "Door" or kind == "enemy" and "Enemy" or "Agent"
-    local stat_y = kind == "enemy" and ENEMY_STAT_Y or STAT_Y
+    local fallback_label = kind == "door" and "Door" or kind == "hazard" and "Hazard" or kind == "enemy" and "Enemy" or "Agent"
+    local stat_y = (kind == "enemy" or kind == "hazard") and ENEMY_STAT_Y or STAT_Y
     local content_x = kind == "door" and PANEL_X + PANEL_PAD or CONTENT_X
     local content_w = kind == "door" and PANEL_W - PANEL_PAD * 2 or CONTENT_W
 
@@ -709,11 +725,11 @@ function agent_uix.mousepressed(x, y, button)
             return false
         end
 
-        local layout = modal_kind == "enemy" and getEnemyModalLayout() or getModalLayout()
+        local layout = (modal_kind == "enemy" or modal_kind == "hazard") and getEnemyModalLayout() or getModalLayout()
         local in_image = pointInRect(x, y, layout.image_x, layout.image_y, layout.image_w, layout.image_h)
         local in_slot = layout.slot_x and pointInRect(x, y, layout.slot_x, layout.slot_y, layout.slot_w, layout.slot_h)
         local in_deck = pointInRect(x, y, layout.deck_x, layout.deck_y, layout.deck_w, layout.deck_h)
-        local deck_button = modal_kind ~= "enemy" and getDeckButtonRect(layout) or nil
+        local deck_button = modal_kind ~= "enemy" and modal_kind ~= "hazard" and getDeckButtonRect(layout) or nil
         local in_deck_button = deck_button and pointInRect(x, y, deck_button.x, deck_button.y, deck_button.w, deck_button.h)
 
         if in_deck_button then

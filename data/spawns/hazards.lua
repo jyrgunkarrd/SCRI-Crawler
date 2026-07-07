@@ -19,6 +19,7 @@ local hazards = {
         },
         fate = "BSCSTACK",
         hazard = true,
+        xpreward = 1,
 
     },
 

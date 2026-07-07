@@ -11,6 +11,7 @@ local doors = {
             {hp = 6},
             {bp = 1},
         },
+        xpreward = 1,
 
     },
 

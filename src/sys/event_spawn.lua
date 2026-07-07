@@ -134,7 +134,7 @@ local function buildComponents(room)
 end
 
 local function isTileFreeForSpawn(tile)
-    return tile and not tile.agent and not tile.enemy
+    return tile and not tile.agent and not tile.enemy and not tile.hazard
 end
 
 local function findSpawnTile(component, spawner_tile)
@@ -188,11 +188,16 @@ local function triggerSpawner(room, component, spawner_tile, definitions)
         return
     end
 
-    local enemy = cloneValue(definition)
-    enemy.spawn_id = spawn_id
-    enemy.instance_id = ("%s_%03d"):format(spawn_id, state.spawned_count + 1)
+    local spawn = cloneValue(definition)
+    spawn.spawn_id = spawn_id
+    spawn.instance_id = ("%s_%03d"):format(spawn_id, state.spawned_count + 1)
 
-    spawn_tile.enemy = enemy
+    if spawn.hazard then
+        spawn_tile.hazard = spawn
+    else
+        spawn_tile.enemy = spawn
+    end
+
     state.spawned_count = state.spawned_count + 1
 
     return true

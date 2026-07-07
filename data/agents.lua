@@ -29,6 +29,7 @@ local agents = {
             {agility = 0},
             {lex = 1}, 
         },
+        hpgrowth = 6,
         fate = "BSCSTACK",
         actions = {
 
@@ -70,6 +71,7 @@ local agents = {
             {agility = 2},
             {lex = 1}, 
         },
+        hpgrowth = 4,
         fate = "BSCSTACK",
         actions = {
 
@@ -106,6 +108,7 @@ local agents = {
             {agility = 4},
             {lex = 1}, 
         },
+        hpgrowth = 2,
         fate = "BSCSTACK",
         actions = {
 
@@ -142,6 +145,7 @@ local agents = {
             {agility = 0},
             {lex = 7}, 
         },
+        hpgrowth = 2,
         fate = "BSCSTACK",
         actions = {
 
@@ -178,6 +182,7 @@ local agents = {
             {agility = 0},
             {lex = 1}, 
         },
+        hpgrowth = 6,
         fate = "BSCSTACK",
         actions = {
 
@@ -214,6 +219,7 @@ local agents = {
             {agility = 3},
             {lex = 0}, 
         },
+        hpgrowth = 4,
         fate = "BSCSTACK",
         actions = {
 
@@ -255,6 +261,7 @@ local agents = {
             {agility = 4},
             {lex = 1}, 
         },
+        hpgrowth = 2,
         fate = "BSCSTACK",
         actions = {
 

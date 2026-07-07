@@ -11,6 +11,7 @@ local ENEMY_ACTION_IMAGE_DIR = "assets/images/en_act"
 local MOVE_ANIMATION_SECONDS = 0.18
 local movement_animation = nil
 local pending_attack_event = nil
+local pending_hazard_events = {}
 
 local function getStatValue(unit, stat_name)
     if not unit or not unit.stats then
@@ -114,7 +115,7 @@ function isPassableForEnemy(room, enemy_tile)
             return true
         end
 
-        return not tile.agent
+        return not tile.agent and not tile.hazard
     end
 end
 
@@ -146,7 +147,7 @@ local function getFurthestOpenStep(path, speed, fallback_tile)
     for index = max_index, 1, -1 do
         local tile = path[index]
 
-        if tile == fallback_tile or (not tile.agent and not tile.enemy) then
+        if tile == fallback_tile or (not tile.agent and not tile.enemy and not tile.hazard) then
             return tile
         end
     end
@@ -159,7 +160,7 @@ local function findBestApproach(room, enemy_tile, target_tile, speed, range)
     local best_cost = math.huge
 
     for _, tile in ipairs(room and room.tiles or {}) do
-        if isTileInRange(room, tile, target_tile, range) and (tile == enemy_tile or (not tile.agent and not tile.enemy)) then
+        if isTileInRange(room, tile, target_tile, range) and (tile == enemy_tile or (not tile.agent and not tile.enemy and not tile.hazard)) then
             local path, cost = pathfinding.findPath(room, enemy_tile, tile, {
                 isPassable = isPassableForEnemy(room, enemy_tile),
             })
@@ -182,7 +183,7 @@ local function findBestApproach(room, enemy_tile, target_tile, speed, range)
         return enemy_tile
     end
 
-    return getFurthestOpenStep(best_path, speed, enemy_tile)
+    return getFurthestOpenStep(best_path, speed, enemy_tile), best_path
 end
 
 local function chooseAction(enemy)
@@ -219,6 +220,16 @@ local function getActionId(action)
     return action.id or action.act or action.act1 or action[1]
 end
 
+local function isAgentInRoom(room, target)
+    for _, tile in ipairs(room and room.tiles or {}) do
+        if tile.agent == target then
+            return true
+        end
+    end
+
+    return false
+end
+
 local function applyDamage(room, target, damage)
     local original_damage = math.max(0, math.floor(tonumber(damage) or 0))
     local blocked_amount = 0
@@ -236,12 +247,25 @@ local function applyDamage(room, target, damage)
     local damaged = hp.current < previous
 
     if hp.current <= 0 then
+        if not isAgentInRoom(room, target) then
+            return damaged, true, false, false, damage
+        end
+
         local survived_burn = burn_logic.resolveHpCollapse(target, room, { play_elimination_sound = false })
 
         return damaged, not survived_burn, survived_burn, false, damage
     end
 
     return damaged, false, false, false, damage
+end
+
+local function removeEliminatedEnemy(room, enemy)
+    for _, tile in ipairs(room and room.tiles or {}) do
+        if tile.enemy == enemy then
+            tile.enemy = nil
+            return
+        end
+    end
 end
 
 local function removeEliminatedAgent(room, agent)
@@ -254,14 +278,14 @@ local function removeEliminatedAgent(room, agent)
     end
 end
 
-local function buildAttackEvent(enemy, target, action, damage, fate_card, damaged, eliminated, burned, blocked)
+local function buildAttackEvent(enemy, target, action, damage, fate_card, damaged, eliminated, burned, blocked, source_kind, target_kind)
     local action_id = getActionId(action)
 
     return {
         agent = enemy,
-        agent_kind = "enemy",
+        agent_kind = source_kind or "enemy",
         target = target,
-        target_kind = "agent",
+        target_kind = target_kind or "agent",
         card = {
             id = action_id,
             name = action_id,
@@ -275,6 +299,74 @@ local function buildAttackEvent(enemy, target, action, damage, fate_card, damage
         blocked = blocked,
         failed = fate_card and fate_card.fail or false,
     }
+end
+
+local function queueHazardAttack(room, hazard_tile, target, target_kind)
+    local hazard = hazard_tile and hazard_tile.hazard
+
+    if not hazard or hazard.triggered then
+        return false
+    end
+
+    hazard.triggered = true
+    fate_logic.initializeFateDeck(hazard)
+
+    local action = chooseAction(hazard) or {}
+    local base_damage = getStatValue(hazard, "atk") + math.max(0, tonumber(action and action.dmg) or 0)
+    local damage, fate_card = fate_logic.applyDamageModifier(hazard, base_damage)
+    local damaged, eliminated, burned, blocked, final_damage = applyDamage(room, target, damage)
+
+    if eliminated then
+        if target_kind == "agent" then
+            removeEliminatedAgent(room, target)
+        elseif target_kind == "enemy" then
+            removeEliminatedEnemy(room, target)
+        end
+    end
+
+    local event = buildAttackEvent(
+        hazard,
+        target,
+        action,
+        final_damage or damage,
+        fate_card,
+        damaged,
+        eliminated,
+        burned,
+        blocked,
+        "hazard",
+        target_kind
+    )
+    event.hazard_tile = hazard_tile
+    event.remove_hazard_after = true
+
+    pending_hazard_events[#pending_hazard_events + 1] = event
+
+    return true
+end
+
+function enemy_ai.triggerHazardsForPath(room, unit, kind, path)
+    if not room or not unit or not path then
+        return false
+    end
+
+    for index = 2, #path do
+        local tile = path[index]
+
+        if tile and tile.hazard then
+            return queueHazardAttack(room, tile, unit, kind)
+        end
+    end
+
+    return false
+end
+
+function enemy_ai.takePendingHazardEvent()
+    if #pending_hazard_events == 0 then
+        return nil
+    end
+
+    return table.remove(pending_hazard_events, 1)
 end
 
 function enemy_ai.takeNextAction(room)
@@ -299,9 +391,9 @@ function enemy_ai.takeNextAction(room)
 
             local speed = math.max(0, math.floor(getStatValue(enemy, "spd")))
             local range = math.max(1, math.floor(getStatValue(enemy, "rng")))
-            local destination = findBestApproach(room, enemy_tile, target_tile, speed, range)
+            local destination, movement_path = findBestApproach(room, enemy_tile, target_tile, speed, range)
 
-            if destination ~= enemy_tile and not destination.agent and not destination.enemy then
+            if destination ~= enemy_tile and not destination.agent and not destination.enemy and not destination.hazard then
                 movement_animation = {
                     agent = enemy,
                     kind = "enemy",
@@ -313,6 +405,7 @@ function enemy_ai.takeNextAction(room)
                 enemy_tile.enemy = nil
                 destination.enemy = enemy
                 enemy_tile = destination
+                enemy_ai.triggerHazardsForPath(room, enemy, "enemy", movement_path)
             end
 
             target_tile = findTargetTile(room, enemy_tile)

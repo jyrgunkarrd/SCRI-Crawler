@@ -10,9 +10,11 @@ local TILE_COLOR = { 0.33, 0.49, 0.42, 1 }
 local CORRIDOR_COLOR = { 0.27, 0.39, 0.35, 1 }
 local AGENT_PORTRAIT_DIR = "assets/images/agents"
 local ENEMY_PORTRAIT_DIR = "assets/images/enemy"
+local HAZARD_PORTRAIT_DIR = "assets/images/hazard"
 local PORTRAIT_RADIUS = HEX_SIZE * 0.78
 local PORTRAIT_OUTLINE_COLOR = { 0.015, 0.012, 0.01, 1 }
 local ENEMY_PORTRAIT_OUTLINE_COLOR = { 0.6118, 0, 0.0431, 1 }
+local HAZARD_PORTRAIT_OUTLINE_COLOR = { 0.9765, 0.6314, 0, 1 }
 local ENEMY_PORTRAIT_OUTLINE_INSET = 5
 local EXHAUSTED_PORTRAIT_COLOR = { 0.34, 0.34, 0.34, 0.72 }
 local SELECTED_PULSE_SPEED = 3.6
@@ -38,6 +40,8 @@ local agent_portraits = {}
 local missing_agent_portraits = {}
 local enemy_portraits = {}
 local missing_enemy_portraits = {}
+local hazard_portraits = {}
+local missing_hazard_portraits = {}
 local agent_eliminations = {}
 local agent_elimination_sound_played = false
 local block_overlay_font = nil
@@ -161,6 +165,37 @@ end
 
 function map_tiles.getEnemyPortrait(enemy)
     return getEnemyPortrait(enemy)
+end
+
+local function getHazardPortrait(hazard)
+    if not hazard or not hazard.id then
+        return nil
+    end
+
+    if hazard_portraits[hazard.id] then
+        return hazard_portraits[hazard.id]
+    end
+
+    if missing_hazard_portraits[hazard.id] then
+        return nil
+    end
+
+    local path = ("%s/%s.webp"):format(HAZARD_PORTRAIT_DIR, hazard.id)
+    local ok, image = pcall(image_loader.newImage, path)
+
+    if not ok then
+        print("Unable to load hazard portrait '" .. path .. "': " .. tostring(image))
+        missing_hazard_portraits[hazard.id] = true
+        return nil
+    end
+
+    hazard_portraits[hazard.id] = image
+
+    return image
+end
+
+function map_tiles.getHazardPortrait(hazard)
+    return getHazardPortrait(hazard)
 end
 
 local function getAgentCurrentAp(agent)
@@ -317,21 +352,55 @@ local function drawEnemyPortraitTile(tile, center_x, center_y, selected)
     drawBlockOverlay(tile.enemy, center_x, center_y)
 end
 
-local function drawMovingPortrait(unit, kind, center_x, center_y)
-    local image = kind == "enemy" and getEnemyPortrait(unit) or getAgentPortrait(unit)
+local function drawHazardPortraitTile(tile, center_x, center_y, selected)
+    if not tile.hazard then
+        return
+    end
+
+    local image = getHazardPortrait(tile.hazard)
 
     if not image then
         return
     end
 
-    if kind == "enemy" then
+    local pulse_scale = 1
+
+    if selected then
+        pulse_scale = 1 + math.sin(love.timer.getTime() * SELECTED_PULSE_SPEED) * SELECTED_PULSE_AMOUNT
+    end
+
+    local radius = PORTRAIT_RADIUS * pulse_scale
+
+    drawHexPortrait(
+        image,
+        center_x,
+        center_y,
+        radius,
+        { 1, 1, 1, 1 },
+        HAZARD_PORTRAIT_OUTLINE_COLOR,
+        radius - ENEMY_PORTRAIT_OUTLINE_INSET,
+        PORTRAIT_OUTLINE_COLOR
+    )
+    drawBlockOverlay(tile.hazard, center_x, center_y)
+end
+
+local function drawMovingPortrait(unit, kind, center_x, center_y)
+    local image = kind == "hazard" and getHazardPortrait(unit)
+        or kind == "enemy" and getEnemyPortrait(unit)
+        or getAgentPortrait(unit)
+
+    if not image then
+        return
+    end
+
+    if kind == "enemy" or kind == "hazard" then
         drawHexPortrait(
             image,
             center_x,
             center_y,
             PORTRAIT_RADIUS,
             { 1, 1, 1, 1 },
-            ENEMY_PORTRAIT_OUTLINE_COLOR,
+            kind == "hazard" and HAZARD_PORTRAIT_OUTLINE_COLOR or ENEMY_PORTRAIT_OUTLINE_COLOR,
             PORTRAIT_RADIUS - ENEMY_PORTRAIT_OUTLINE_INSET,
             PORTRAIT_OUTLINE_COLOR
         )
@@ -444,6 +513,8 @@ function map_tiles.drawPortraits(room, camera_x, camera_y, selected_tile, moving
 
     for _, tile in ipairs(room.tiles) do
         local x, y = axialToPixel(tile.q, tile.r)
+
+        drawHazardPortraitTile(tile, x + offset_x, y + offset_y, tile == selected_tile)
 
         if tile.enemy ~= moving_unit or moving_kind ~= "enemy" then
             drawEnemyPortraitTile(tile, x + offset_x, y + offset_y, tile == selected_tile)

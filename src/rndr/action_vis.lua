@@ -7,6 +7,7 @@ local action_vis = {}
 
 local AGENT_IMAGE_DIR = "assets/images/agents"
 local ENEMY_IMAGE_DIR = "assets/images/enemy"
+local HAZARD_IMAGE_DIR = "assets/images/hazard"
 local BACKDROP_COLOR = { 0, 0, 0, 0.72 }
 local SHADOW_COLOR = { 0, 0, 0, 0.62 }
 local DAMAGE_TEXT_COLOR = { 1, 0.2902, 0.4902, 1 }
@@ -64,6 +65,10 @@ local function easeInCubic(t)
 end
 
 local function getImageDir(kind)
+    if kind == "hazard" then
+        return HAZARD_IMAGE_DIR
+    end
+
     return kind == "enemy" and ENEMY_IMAGE_DIR or AGENT_IMAGE_DIR
 end
 
@@ -363,6 +368,12 @@ function action_vis.update(dt)
     end
 
     if active.elapsed >= active.total_duration then
+        local event = active.event
+
+        if event and event.remove_hazard_after and event.hazard_tile then
+            event.hazard_tile.hazard = nil
+        end
+
         active = nil
     end
 end

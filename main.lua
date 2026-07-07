@@ -344,6 +344,21 @@ function love.update(dt)
     action_vis.update(dt)
     enemy_ai.update(dt)
 
+    if not action_vis.isActive() and not agent_logic.getMovementAnimation() and not enemy_ai.isMoving() then
+        local hazard_event = enemy_ai.takePendingHazardEvent()
+
+        if hazard_event then
+            if hazard_event.eliminated
+                and (agent_logic.getSelectedAgent() == hazard_event.target
+                    or agent_logic.getSelectedEnemy() == hazard_event.target)
+            then
+                agent_logic.clearSelection()
+            end
+
+            action_vis.start(hazard_event)
+        end
+    end
+
     if phase_rules.update(dt) then
         local current_phase = phase_rules.getCurrentPhase()
 

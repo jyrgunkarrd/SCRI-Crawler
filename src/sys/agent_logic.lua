@@ -6,11 +6,13 @@ local action_deck_logic = require("src.sys.action_deck_logic")
 local burn_logic = require("src.sys.burn_logic")
 local block_logic = require("src.sys.block_logic")
 local door_room_logic = require("src.sys.door_room_logic")
+local enemy_ai = require("src.sys.enemy_ai")
 
 local agent_logic = {
     selected_tile = nil,
     selected_agent = nil,
     selected_enemy = nil,
+    selected_hazard = nil,
     selected_door = nil,
     shout = nil,
     movement = {
@@ -369,6 +371,7 @@ function agent_logic.clearSelection()
     agent_logic.selected_tile = nil
     agent_logic.selected_agent = nil
     agent_logic.selected_enemy = nil
+    agent_logic.selected_hazard = nil
     agent_logic.selected_door = nil
     agent_logic.shout = nil
     agent_logic.movement.range = {}
@@ -384,6 +387,7 @@ function agent_logic.selectAgent(agent, tile, room)
 
     agent_logic.selected_agent = agent
     agent_logic.selected_enemy = nil
+    agent_logic.selected_hazard = nil
     agent_logic.selected_door = nil
     agent_logic.selected_tile = tile
     agent_logic.shout = {
@@ -401,6 +405,7 @@ end
 function agent_logic.selectEnemy(enemy, tile, room)
     agent_logic.selected_agent = nil
     agent_logic.selected_enemy = enemy
+    agent_logic.selected_hazard = nil
     agent_logic.selected_door = nil
     agent_logic.selected_tile = tile
     agent_logic.shout = nil
@@ -410,9 +415,24 @@ function agent_logic.selectEnemy(enemy, tile, room)
     sfx_logic.playNamed("token_select")
 end
 
+function agent_logic.selectHazard(hazard, tile)
+    agent_logic.selected_agent = nil
+    agent_logic.selected_enemy = nil
+    agent_logic.selected_hazard = hazard
+    agent_logic.selected_door = nil
+    agent_logic.selected_tile = tile
+    agent_logic.shout = nil
+    agent_logic.movement.range = {}
+    agent_logic.movement.preview = nil
+    agent_logic.enemy_overlay.movement = {}
+    agent_logic.enemy_overlay.threat = {}
+    sfx_logic.playNamed("token_select")
+end
+
 function agent_logic.selectDoor(door)
     agent_logic.selected_agent = nil
     agent_logic.selected_enemy = nil
+    agent_logic.selected_hazard = nil
     agent_logic.selected_door = door
     agent_logic.selected_tile = nil
     agent_logic.shout = nil
@@ -471,6 +491,7 @@ function agent_logic.handleMousePressed(room, x, y, button, camera_x, camera_y)
                 preview.tile.agent = agent_logic.selected_agent
                 agent_logic.selected_tile = preview.tile
                 ap.current = math.max(0, ap.current - preview.cost)
+                enemy_ai.triggerHazardsForPath(room, agent_logic.selected_agent, "agent", preview.path)
                 refreshMovementRange(room)
                 updateMovementPreview(room, camera_x, camera_y)
                 sfx_logic.playMove()
@@ -498,6 +519,8 @@ function agent_logic.handleMousePressed(room, x, y, button, camera_x, camera_y)
         agent_logic.selectAgent(tile.agent, tile, room)
     elseif tile and tile.enemy then
         agent_logic.selectEnemy(tile.enemy, tile, room)
+    elseif tile and tile.hazard then
+        agent_logic.selectHazard(tile.hazard, tile)
     else
         agent_logic.clearSelection()
     end
@@ -542,6 +565,10 @@ function agent_logic.getSelectedEnemy()
     return agent_logic.selected_enemy
 end
 
+function agent_logic.getSelectedHazard()
+    return agent_logic.selected_hazard
+end
+
 function agent_logic.getSelectedDoor()
     return agent_logic.selected_door
 end
@@ -553,6 +580,10 @@ function agent_logic.getSelectedUnit()
 
     if agent_logic.selected_enemy then
         return agent_logic.selected_enemy, "enemy"
+    end
+
+    if agent_logic.selected_hazard then
+        return agent_logic.selected_hazard, "hazard"
     end
 
     if agent_logic.selected_door then
@@ -601,6 +632,7 @@ end
 function agent_logic.getSelectedStats()
     local agent = agent_logic.getSelectedAgent()
     local enemy = agent_logic.getSelectedEnemy()
+    local hazard = agent_logic.getSelectedHazard()
     local door = agent_logic.getSelectedDoor()
 
     if enemy then
@@ -609,6 +641,15 @@ function agent_logic.getSelectedStats()
             atk = getRuntimeStat(enemy, "atk"),
             spd = getRuntimeStat(enemy, "spd"),
             rng = getRuntimeStat(enemy, "rng"),
+        }
+    end
+
+    if hazard then
+        return {
+            hp = getRuntimeStat(hazard, "hp"),
+            bp = getRuntimeStat(hazard, "bp"),
+            atk = getRuntimeStat(hazard, "atk"),
+            rng = getRuntimeStat(hazard, "rng"),
         }
     end
 

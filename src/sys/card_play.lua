@@ -185,7 +185,11 @@ local function matchesTarget(card, tile, source_tile)
     end
 
     if target == "enemy" then
-        return tile and tile.enemy ~= nil
+        return tile and (tile.enemy ~= nil or tile.hazard ~= nil)
+    end
+
+    if target == "door" then
+        return tile and tile.hazard ~= nil and hasBypass(card)
     end
 
     if target == "agent" then
@@ -222,7 +226,11 @@ local function getTargetUnit(card, tile, source_agent)
     end
 
     if target == "enemy" then
-        return tile and tile.enemy or nil
+        return tile and (tile.enemy or tile.hazard) or nil
+    end
+
+    if target == "door" then
+        return tile and tile.hazard or nil
     end
 
     if target == "agent" then
@@ -237,6 +245,12 @@ local function eliminateTarget(room, target_tile, target_unit)
         target_tile.enemy = nil
 
         if agent_logic.getSelectedEnemy and agent_logic.getSelectedEnemy() == target_unit then
+            agent_logic.clearSelection()
+        end
+    elseif target_tile.hazard == target_unit then
+        target_tile.hazard = nil
+
+        if agent_logic.getSelectedHazard and agent_logic.getSelectedHazard() == target_unit then
             agent_logic.clearSelection()
         end
     elseif target_tile.agent == target_unit then
@@ -286,6 +300,37 @@ local function damageTarget(room, target_tile, target_unit, damage)
     return {
         damaged = was_alive and damage > 0,
         eliminated = was_alive and hp.current <= 0,
+        burned = false,
+        blocked = false,
+        final_damage = damage,
+    }
+end
+
+local function damageHazardBp(target_tile, hazard, damage)
+    damage = math.max(0, math.floor(tonumber(damage) or 0))
+
+    if not target_tile or target_tile.hazard ~= hazard or not hazard or damage <= 0 then
+        return {
+            damaged = false,
+            eliminated = false,
+            burned = false,
+            blocked = false,
+            final_damage = 0,
+        }
+    end
+
+    local bp = getRuntimeStat(hazard, "bp")
+    local was_alive = bp.current > 0
+
+    bp.current = math.max(0, bp.current - damage)
+
+    if bp.current <= 0 then
+        eliminateTarget(nil, target_tile, hazard)
+    end
+
+    return {
+        damaged = was_alive and damage > 0,
+        eliminated = was_alive and bp.current <= 0,
         burned = false,
         blocked = false,
         final_damage = damage,
@@ -430,7 +475,9 @@ function card_play.release(room, x, y, camera_x, camera_y)
     end
 
     local target_unit = getTargetUnit(drag.card, target_tile, drag.agent)
-    local target_kind = target_tile.enemy == target_unit and "enemy" or "agent"
+    local target_kind = target_tile.hazard == target_unit and "hazard"
+        or target_tile.enemy == target_unit and "enemy"
+        or "agent"
     local ap = getRuntimeStat(drag.agent, "ap")
 
     ap.current = math.max(0, ap.current - getCardCost(drag.card))
@@ -442,14 +489,16 @@ function card_play.release(room, x, y, camera_x, camera_y)
         return true, nil
     end
 
-    local damage = getDamage(drag.card)
+    local damage = getPlayFunc(drag.card).targ == "door" and getBypass(drag.card) or getDamage(drag.card)
     local fate_card = nil
 
-    if hasDamage(drag.card) then
+    if hasDamage(drag.card) or (target_kind == "hazard" and hasBypass(drag.card)) then
         damage, fate_card = fate_logic.applyDamageModifier(drag.agent, damage)
     end
 
-    local result = damageTarget(room, target_tile, target_unit, damage)
+    local result = target_kind == "hazard" and getPlayFunc(drag.card).targ == "door"
+        and damageHazardBp(target_tile, target_unit, damage)
+        or damageTarget(room, target_tile, target_unit, damage)
     removeCardFromHand(drag.agent, drag.hand_index)
     agent_logic.refreshMovementRange(room)
 

@@ -1,5 +1,5 @@
 return {
-    id = "map_002",
+    id = "map_001",
     tiles = {
         { q = 3, r = -6, palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },
         { q = 4, r = -6, palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },
@@ -24,7 +24,7 @@ return {
         { q = 5, r = -3, palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },
         { q = 6, r = -3, palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },
         { q = -5, r = -2, palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },
-        { q = -4, r = -2, spawn_event = "SENTRY", palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },
+        { q = -4, r = -2, palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },
         { q = -3, r = -2, palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },
         { q = -2, r = -2, palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },
         { q = -1, r = -2, spawn_event = "FORG", palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },
@@ -47,8 +47,8 @@ return {
         { q = -1, r = 0, corridor = true, palette = 1, swatch = 6, color = { 0.2745, 0.2824, 0.1922, 1.0000 } },
         { q = 0, r = 0, corridor = true, palette = 1, swatch = 6, color = { 0.2745, 0.2824, 0.1922, 1.0000 } },
         { q = 1, r = 0, corridor = true, palette = 1, swatch = 6, color = { 0.2745, 0.2824, 0.1922, 1.0000 } },
-        { q = 2, r = 0, corridor = true, spawn_event = "SENTRY", palette = 1, swatch = 6, color = { 0.2745, 0.2824, 0.1922, 1.0000 } },
-        { q = 3, r = 0, corridor = true, spawn_event = "SENTRY", palette = 1, swatch = 6, color = { 0.2745, 0.2824, 0.1922, 1.0000 } },
+        { q = 2, r = 0, corridor = true, spawn_event = "sentry", palette = 1, swatch = 6, color = { 0.2745, 0.2824, 0.1922, 1.0000 } },
+        { q = 3, r = 0, corridor = true, spawn_event = "sentry", palette = 1, swatch = 6, color = { 0.2745, 0.2824, 0.1922, 1.0000 } },
         { q = 4, r = 0, corridor = true, palette = 1, swatch = 6, color = { 0.2745, 0.2824, 0.1922, 1.0000 } },
         { q = 5, r = 0, corridor = true, palette = 1, swatch = 6, color = { 0.2745, 0.2824, 0.1922, 1.0000 } },
         { q = 6, r = 0, corridor = true, palette = 1, swatch = 6, color = { 0.2745, 0.2824, 0.1922, 1.0000 } },
@@ -89,7 +89,7 @@ return {
     },
     doors = {
         { a = { q = -3, r = 1 }, b = { q = -2, r = 1 }, door_event = "secdoor1" },
-        { a = { q = 2, r = 0 }, b = { q = 3, r = -1 }, door_event = "SECDOOR1" },
-        { a = { q = 3, r = 0 }, b = { q = 3, r = -1 }, door_event = "SECDOOR1" },
+        { a = { q = 2, r = 0 }, b = { q = 3, r = -1 }, door_event = "secdoor1" },
+        { a = { q = 3, r = 0 }, b = { q = 3, r = -1 }, door_event = "secdoor1" },
     },
 }
