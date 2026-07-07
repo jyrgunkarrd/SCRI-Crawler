@@ -6,6 +6,7 @@ local action_deck_logic = require("src.sys.action_deck_logic")
 local burn_logic = require("src.sys.burn_logic")
 local block_logic = require("src.sys.block_logic")
 local door_room_logic = require("src.sys.door_room_logic")
+local XP_levels = require("src.sys.XP_levels")
 
 local card_play = {
     drag = nil,
@@ -458,7 +459,12 @@ function card_play.release(room, x, y, camera_x, camera_y)
         ap.current = math.max(0, ap.current - getCardCost(drag.card))
 
         value, fate_card = fate_logic.applyDamageModifier(drag.agent, value)
-        damageDoor(target_door, drag.card, value)
+        local result = damageDoor(target_door, drag.card, value)
+
+        if result.unlocked then
+            XP_levels.awardDefeat(drag.agent, target_door)
+        end
+
         removeCardFromHand(drag.agent, drag.hand_index)
         agent_logic.refreshMovementRange(room)
 
@@ -499,6 +505,7 @@ function card_play.release(room, x, y, camera_x, camera_y)
     local result = target_kind == "hazard" and getPlayFunc(drag.card).targ == "door"
         and damageHazardBp(target_tile, target_unit, damage)
         or damageTarget(room, target_tile, target_unit, damage)
+
     removeCardFromHand(drag.agent, drag.hand_index)
     agent_logic.refreshMovementRange(room)
 
@@ -514,6 +521,8 @@ function card_play.release(room, x, y, camera_x, camera_y)
         burned = result.burned,
         blocked = result.blocked,
         failed = fate_card and fate_card.fail or false,
+        xp_agent = result.eliminated and (target_kind == "enemy" or target_kind == "hazard") and drag.agent or nil,
+        xp_target = result.eliminated and (target_kind == "enemy" or target_kind == "hazard") and target_unit or nil,
     }
 end
 

@@ -152,6 +152,11 @@ local agents = {
             "BSCDECK",
 
         },
+        start_equip = {
+
+            "PHNX",
+
+        },
         shout_select = "Say the word.",
 
     },

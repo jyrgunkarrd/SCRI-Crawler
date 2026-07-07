@@ -5,6 +5,8 @@ local map_tiles = require("src.rndr.map_tiles")
 local action_deck_viewer = require("src.rndr.action_deck_viewer")
 local burn_palette = require("data.burn_palette")
 local block_logic = require("src.sys.block_logic")
+local XP_levels = require("src.sys.XP_levels")
+local sfx_logic = require("src.sys.sfx_logic")
 
 local agent_uix = {}
 
@@ -72,7 +74,25 @@ local FATE_SECTION_GAP = 14
 local FATE_ROW_H = 28
 local FATE_ROW_GAP = 6
 local FATE_FONT_SIZE = 16
+local MODAL_STAT_LABEL_W = 150
+local MODAL_STAT_LABEL_H = 28
+local MODAL_STAT_LABEL_GAP = 18
+local MODAL_STAT_LABEL_Y_GAP = 8
+local MODAL_STAT_LABEL_OUTLINE_W = 3
+local MODAL_STAT_BUTTON_SIZE = 26
+local MODAL_STAT_BUTTON_Y_GAP = 5
+local MODAL_STAT_POINTS_W = 210
+local MODAL_STAT_POINTS_H = 24
+local MODAL_STAT_POINTS_Y_GAP = 5
 local BLOCK_ICON_FONT_SIZE = 22
+local XP_COLOR = { 1, 0.8275, 0.3529, 1 }
+local XP_GAUGE_X = PANEL_X
+local XP_GAUGE_Y = PANEL_Y + PANEL_H + 8
+local XP_GAUGE_W = PANEL_W
+local XP_GAUGE_H = 28
+local XP_GAUGE_OUTLINE_W = 3
+local LEVEL_BADGE_SIZE = 38
+local LEVEL_BADGE_OUTLINE_W = 3
 local DECK_BUTTON_SIZE = 74
 local DECK_BUTTON_GAP = 16
 local DECK_BUTTON_ICON_PAD = 14
@@ -121,6 +141,16 @@ local HAZARD_STAT_ORDER = {
 
 local function pointInRect(x, y, rect_x, rect_y, rect_w, rect_h)
     return x >= rect_x and x <= rect_x + rect_w and y >= rect_y and y <= rect_y + rect_h
+end
+
+local function pointInAnyRect(x, y, rects)
+    for _, rect in ipairs(rects or {}) do
+        if pointInRect(x, y, rect.x, rect.y, rect.w, rect.h) then
+            return rect
+        end
+    end
+
+    return nil
 end
 
 local function getModalLayout()
@@ -195,6 +225,68 @@ local function getDeckIcon()
     deck_icon = image
 
     return deck_icon
+end
+
+local function getBaseStat(unit, stat_id)
+    for _, stat in ipairs(unit and unit.stats or {}) do
+        if stat[stat_id] ~= nil then
+            return math.floor(tonumber(stat[stat_id]) or 0)
+        end
+    end
+
+    return 0
+end
+
+local function getModalStatLabelRects(layout)
+    local stat_ids = { "strength", "agility", "lex" }
+    local total_w = #stat_ids * MODAL_STAT_LABEL_W + (#stat_ids - 1) * MODAL_STAT_LABEL_GAP
+    local start_x = layout.slot_x + (layout.slot_w - total_w) / 2
+    local y = layout.slot_y - MODAL_STAT_LABEL_H - MODAL_STAT_LABEL_Y_GAP
+    local rects = {}
+
+    for index, stat_id in ipairs(stat_ids) do
+        local x = start_x + (index - 1) * (MODAL_STAT_LABEL_W + MODAL_STAT_LABEL_GAP)
+
+        rects[#rects + 1] = {
+            stat_id = stat_id,
+            x = x,
+            y = y,
+            w = MODAL_STAT_LABEL_W,
+            h = MODAL_STAT_LABEL_H,
+        }
+    end
+
+    return rects
+end
+
+local function getModalStatButtonRects(layout)
+    local label_rects = getModalStatLabelRects(layout)
+    local button_y = label_rects[1].y - MODAL_STAT_BUTTON_SIZE - MODAL_STAT_BUTTON_Y_GAP
+    local rects = {}
+
+    for _, label_rect in ipairs(label_rects) do
+        rects[#rects + 1] = {
+            stat_id = label_rect.stat_id,
+            x = label_rect.x + (label_rect.w - MODAL_STAT_BUTTON_SIZE) / 2,
+            y = button_y,
+            w = MODAL_STAT_BUTTON_SIZE,
+            h = MODAL_STAT_BUTTON_SIZE,
+        }
+    end
+
+    return rects
+end
+
+local function getModalStatPointsRect(layout)
+    local button_rects = getModalStatButtonRects(layout)
+    local y = button_rects[1].y - MODAL_STAT_POINTS_H - MODAL_STAT_POINTS_Y_GAP
+
+    return {
+        x = layout.slot_x + (layout.slot_w - MODAL_STAT_POINTS_W) / 2,
+        y = y,
+        w = MODAL_STAT_POINTS_W,
+        h = MODAL_STAT_POINTS_H,
+    }
 end
 
 local function getFullImage(unit, kind)
@@ -313,6 +405,56 @@ local function drawPortrait(unit, kind)
     love.graphics.setLineWidth(3)
     love.graphics.polygon("line", points)
     love.graphics.setLineWidth(1)
+end
+
+local function drawAgentLevelBadge(agent)
+    local level_text = tostring(XP_levels.getLevel(agent))
+    local font = love.graphics.getFont()
+    local x = PORTRAIT_BOX_X
+    local y = PORTRAIT_BOX_Y
+
+    love.graphics.setColor(0, 0, 0, 1)
+    love.graphics.rectangle("fill", x, y, LEVEL_BADGE_SIZE, LEVEL_BADGE_SIZE)
+    love.graphics.setColor(XP_COLOR)
+    love.graphics.setLineWidth(LEVEL_BADGE_OUTLINE_W)
+    love.graphics.rectangle("line", x, y, LEVEL_BADGE_SIZE, LEVEL_BADGE_SIZE)
+    love.graphics.setLineWidth(1)
+    love.graphics.print(
+        level_text,
+        x + (LEVEL_BADGE_SIZE - font:getWidth(level_text)) / 2,
+        y + (LEVEL_BADGE_SIZE - font:getHeight()) / 2
+    )
+end
+
+local function drawAgentXpGauge(agent)
+    if XP_levels.isMaxLevel(agent) then
+        return
+    end
+
+    local xp = XP_levels.getXp(agent)
+    local needed = math.max(1, XP_levels.getXpToNext(agent))
+    local fill_w = math.min(XP_GAUGE_W, XP_GAUGE_W * xp / needed)
+    local text = tostring(xp)
+    local font = love.graphics.getFont()
+    local text_x = XP_GAUGE_X + (XP_GAUGE_W - font:getWidth(text)) / 2
+    local text_y = XP_GAUGE_Y + (XP_GAUGE_H - font:getHeight()) / 2
+    local text_color = text_x <= XP_GAUGE_X + fill_w and { 0, 0, 0, 1 } or XP_COLOR
+
+    love.graphics.setColor(0, 0, 0, 1)
+    love.graphics.rectangle("fill", XP_GAUGE_X, XP_GAUGE_Y, XP_GAUGE_W, XP_GAUGE_H)
+
+    if fill_w > 0 then
+        love.graphics.setColor(XP_COLOR)
+        love.graphics.rectangle("fill", XP_GAUGE_X, XP_GAUGE_Y, fill_w, XP_GAUGE_H)
+    end
+
+    love.graphics.setColor(0, 0, 0, 1)
+    love.graphics.setLineWidth(XP_GAUGE_OUTLINE_W)
+    love.graphics.rectangle("line", XP_GAUGE_X, XP_GAUGE_Y, XP_GAUGE_W, XP_GAUGE_H)
+    love.graphics.setLineWidth(1)
+
+    love.graphics.setColor(text_color)
+    love.graphics.print(text, text_x, text_y)
 end
 
 local function drawBurnClock(agent)
@@ -510,6 +652,53 @@ local function drawDeckButton(layout)
     )
 end
 
+local function drawModalAgentStatLabels(agent, layout)
+    local labels = {
+        ("STR %d"):format(getBaseStat(agent, "strength")),
+        ("AGI %d"):format(getBaseStat(agent, "agility")),
+        ("LEX %d"):format(getBaseStat(agent, "lex")),
+    }
+    local label_rects = getModalStatLabelRects(layout)
+    local stat_points = XP_levels.getStatPoints(agent)
+
+    if stat_points > 0 then
+        local points_rect = getModalStatPointsRect(layout)
+        local button_rects = getModalStatButtonRects(layout)
+
+        love.graphics.setColor(XP_COLOR)
+        love.graphics.rectangle("fill", points_rect.x, points_rect.y, points_rect.w, points_rect.h)
+        love.graphics.setColor(0, 0, 0, 1)
+        love.graphics.printf(
+            tostring(stat_points),
+            points_rect.x + 4,
+            points_rect.y + 3,
+            points_rect.w - 8,
+            "center"
+        )
+
+        for _, rect in ipairs(button_rects) do
+            love.graphics.setColor(XP_COLOR)
+            love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h)
+            love.graphics.setColor(0, 0, 0, 1)
+            love.graphics.rectangle("line", rect.x, rect.y, rect.w, rect.h)
+            love.graphics.printf("+", rect.x, rect.y + 3, rect.w, "center")
+        end
+    end
+
+    for index, label in ipairs(labels) do
+        local rect = label_rects[index]
+
+        love.graphics.setColor(MODAL_FILL_COLOR)
+        love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h)
+        love.graphics.setColor(MODAL_BORDER_COLOR)
+        love.graphics.setLineWidth(MODAL_STAT_LABEL_OUTLINE_W)
+        love.graphics.rectangle("line", rect.x, rect.y, rect.w, rect.h)
+        love.graphics.setLineWidth(1)
+        love.graphics.setColor(TEXT_COLOR)
+        love.graphics.printf(label, rect.x + 4, rect.y + 5, rect.w - 8, "center")
+    end
+end
+
 local function drawSlotWindow(agent, layout)
     local section_h = (layout.slot_h - FATE_SECTION_GAP) / 2
     local slot_section_x = layout.slot_x
@@ -534,6 +723,8 @@ local function drawSlotWindow(agent, layout)
     love.graphics.rectangle("line", lower_section_x, lower_section_y, layout.slot_w, section_h)
     love.graphics.setLineWidth(1)
     love.graphics.setFont(fate_font)
+
+    drawModalAgentStatLabels(agent, layout)
 
     for index = 1, SLOT_COLS * SLOT_ROWS do
         local slot_name = (agent.slots and agent.slots[index]) or ""
@@ -689,6 +880,8 @@ function agent_uix.draw()
 
     if kind == "agent" then
         drawBurnClock(unit)
+        drawAgentLevelBadge(unit)
+        drawAgentXpGauge(unit)
     end
 
     love.graphics.setColor(TEXT_COLOR)
@@ -731,10 +924,26 @@ function agent_uix.mousepressed(x, y, button)
         local in_deck = pointInRect(x, y, layout.deck_x, layout.deck_y, layout.deck_w, layout.deck_h)
         local deck_button = modal_kind ~= "enemy" and modal_kind ~= "hazard" and getDeckButtonRect(layout) or nil
         local in_deck_button = deck_button and pointInRect(x, y, deck_button.x, deck_button.y, deck_button.w, deck_button.h)
+        local stat_button = nil
+        local in_stat_controls = false
 
-        if in_deck_button then
+        if modal_kind ~= "enemy" and modal_kind ~= "hazard" and layout.slot_x then
+            local label_rect = pointInAnyRect(x, y, getModalStatLabelRects(layout))
+            local points_rect = XP_levels.getStatPoints(modal_unit) > 0 and getModalStatPointsRect(layout) or nil
+
+            stat_button = XP_levels.getStatPoints(modal_unit) > 0 and pointInAnyRect(x, y, getModalStatButtonRects(layout)) or nil
+            in_stat_controls = label_rect ~= nil
+                or stat_button ~= nil
+                or (points_rect and pointInRect(x, y, points_rect.x, points_rect.y, points_rect.w, points_rect.h))
+        end
+
+        if stat_button then
+            if XP_levels.spendStatPoint(modal_unit, stat_button.stat_id) then
+                sfx_logic.playNamed("token_select")
+            end
+        elseif in_deck_button then
             action_deck_viewer.open(modal_unit)
-        elseif not in_image and not in_slot and not in_deck then
+        elseif not in_image and not in_slot and not in_deck and not in_stat_controls then
             modal_unit = nil
             modal_kind = nil
         end
@@ -751,6 +960,7 @@ function agent_uix.mousepressed(x, y, button)
     if unit and kind ~= "door" and pointInRect(x, y, PORTRAIT_BOX_X, PORTRAIT_BOX_Y, PORTRAIT_BOX_SIZE, PORTRAIT_BOX_SIZE) then
         modal_unit = unit
         modal_kind = kind
+        sfx_logic.playNamed("token_select")
         return true
     end
 

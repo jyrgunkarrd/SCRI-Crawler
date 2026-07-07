@@ -2,6 +2,8 @@ local fate_logic = {}
 
 local FATE_STACKS_PATH = "data.fate_stacks"
 local FATE_TILES_PATH = "data.fate_tiles"
+local TOTAL_FATE_UPGRADES = 17
+local MAX_PHYSICAL_INVESTMENT = 400
 
 local function buildLookup(items)
     local lookup = {}
@@ -19,6 +21,54 @@ end
 
 local function getTileLookup()
     return buildLookup(require(FATE_TILES_PATH))
+end
+
+local function getStatValue(agent, stat_id)
+    for _, stat in ipairs(agent and agent.stats or {}) do
+        if stat[stat_id] ~= nil then
+            return math.floor(tonumber(stat[stat_id]) or 0)
+        end
+    end
+
+    return 0
+end
+
+function fate_logic.getFateUpgradeSteps(agent)
+    local strength = getStatValue(agent, "strength")
+    local agility = getStatValue(agent, "agility")
+    local physical = strength + agility
+    local steps = math.floor((physical * TOTAL_FATE_UPGRADES) / MAX_PHYSICAL_INVESTMENT)
+
+    return math.min(TOTAL_FATE_UPGRADES, math.max(0, steps))
+end
+
+function fate_logic.getPositiveFateCounts(agent)
+    local steps = fate_logic.getFateUpgradeSteps(agent)
+    local zero_to_one = math.min(6, steps)
+    local one_to_two = math.min(11, math.max(0, steps - 6))
+    local plus_zero = 6 - zero_to_one
+    local plus_one = 5 + zero_to_one - one_to_two
+    local plus_two = 1 + one_to_two
+
+    return plus_zero, plus_one, plus_two
+end
+
+local function getProgressedQuantity(agent, stack_tile, card)
+    if not card or card.neg or card.fail or card.crit then
+        return math.max(0, math.floor(stack_tile.quantity or 0))
+    end
+
+    local plus_zero, plus_one, plus_two = fate_logic.getPositiveFateCounts(agent)
+
+    if stack_tile.slot == "BSC0" then
+        return plus_zero
+    elseif stack_tile.slot == "BSC1" then
+        return plus_one
+    elseif stack_tile.slot == "BSC2" then
+        return plus_two
+    end
+
+    return math.max(0, math.floor(stack_tile.quantity or 0))
 end
 
 local function shuffle(items)
@@ -45,11 +95,12 @@ local function formatCardValue(card)
     return "+" .. tostring(card.value or 0), "pos"
 end
 
-local function buildRuntimeCard(card)
+local function buildRuntimeCard(card, display_order)
     local value_text, value_kind = formatCardValue(card)
 
     return {
         id = card.id,
+        display_order = display_order,
         value = tonumber(card.value) or 0,
         value_text = value_text,
         value_kind = value_kind,
@@ -61,24 +112,27 @@ end
 
 local function stackCards(cards)
     local stacks = {}
-    local order = {}
+    local result = {}
 
     for _, card in ipairs(cards or {}) do
         if not stacks[card.id] then
             local stack = buildRuntimeCard(card)
             stack.quantity = 0
+            stack.display_order = card.display_order or math.huge
             stacks[card.id] = stack
-            order[#order + 1] = card.id
+            result[#result + 1] = stack
         end
 
         stacks[card.id].quantity = stacks[card.id].quantity + 1
     end
 
-    local result = {}
+    table.sort(result, function(a, b)
+        if a.display_order == b.display_order then
+            return tostring(a.id) < tostring(b.id)
+        end
 
-    for _, card_id in ipairs(order) do
-        result[#result + 1] = stacks[card_id]
-    end
+        return a.display_order < b.display_order
+    end)
 
     return result
 end
@@ -101,7 +155,9 @@ function fate_logic.initializeFateDeck(agent)
         return
     end
 
-    if agent.fate_runtime then
+    local progression_steps = fate_logic.getFateUpgradeSteps(agent)
+
+    if agent.fate_runtime and agent.fate_runtime.progression_steps == progression_steps then
         return
     end
 
@@ -119,12 +175,12 @@ function fate_logic.initializeFateDeck(agent)
     local tile_lookup = getTileLookup()
     local deck = {}
 
-    for _, stack_tile in ipairs(stack.tiles or {}) do
+    for index, stack_tile in ipairs(stack.tiles or {}) do
         local card = tile_lookup[stack_tile.slot]
 
         if card then
-            for _ = 1, math.max(0, math.floor(stack_tile.quantity or 0)) do
-                deck[#deck + 1] = buildRuntimeCard(card)
+            for _ = 1, getProgressedQuantity(agent, stack_tile, card) do
+                deck[#deck + 1] = buildRuntimeCard(card, index)
             end
         else
             print("Unknown fate tile id: " .. tostring(stack_tile.slot))
@@ -136,6 +192,7 @@ function fate_logic.initializeFateDeck(agent)
     agent.fate_runtime = {
         deck = deck,
         discard = {},
+        progression_steps = progression_steps,
     }
 end
 

@@ -7,6 +7,7 @@ local burn_logic = require("src.sys.burn_logic")
 local block_logic = require("src.sys.block_logic")
 local door_room_logic = require("src.sys.door_room_logic")
 local enemy_ai = require("src.sys.enemy_ai")
+local XP_levels = require("src.sys.XP_levels")
 
 local agent_logic = {
     selected_tile = nil,
@@ -100,6 +101,12 @@ local function getStatValue(agent, stat_name)
 end
 
 local function getRuntimeStat(agent, stat_name)
+    agent.runtime_stats = agent.runtime_stats or {}
+
+    if agent.runtime_stats[stat_name] then
+        return agent.runtime_stats[stat_name]
+    end
+
     local maximum = getStatValue(agent, stat_name)
 
     if maximum <= 0 then
@@ -109,14 +116,10 @@ local function getRuntimeStat(agent, stat_name)
         }
     end
 
-    agent.runtime_stats = agent.runtime_stats or {}
-
-    if not agent.runtime_stats[stat_name] then
-        agent.runtime_stats[stat_name] = {
-            current = maximum,
-            maximum = maximum,
-        }
-    end
+    agent.runtime_stats[stat_name] = {
+        current = maximum,
+        maximum = maximum,
+    }
 
     return agent.runtime_stats[stat_name]
 end
@@ -670,6 +673,7 @@ function agent_logic.ensureRuntimeStats(agent)
     getRuntimeStat(agent, "lp")
     block_logic.clearBlock(agent)
     fate_logic.initializeFateDeck(agent)
+    XP_levels.initializeAgent(agent)
 end
 
 function agent_logic.refreshAgents(room)

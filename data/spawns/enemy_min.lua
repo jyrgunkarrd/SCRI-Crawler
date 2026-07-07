@@ -20,7 +20,7 @@ local enemy_min = {
         },
         fate = "BSCSTACK",
         enemy = true,
-        xpreward = 1,
+        xpreward = 1000,
 
     },
 

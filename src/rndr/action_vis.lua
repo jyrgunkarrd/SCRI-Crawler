@@ -1,6 +1,7 @@
 local card_vis = require("src.rndr.card_vis")
 local image_loader = require("src.assets.image_loader")
 local sfx_logic = require("src.sys.sfx_logic")
+local XP_levels = require("src.sys.XP_levels")
 local burn_palette = require("data.burn_palette")
 
 local action_vis = {}
@@ -369,6 +370,11 @@ function action_vis.update(dt)
 
     if active.elapsed >= active.total_duration then
         local event = active.event
+
+        if event and event.xp_agent and event.xp_target and not event.xp_awarded then
+            XP_levels.awardDefeat(event.xp_agent, event.xp_target)
+            event.xp_awarded = true
+        end
 
         if event and event.remove_hazard_after and event.hazard_tile then
             event.hazard_tile.hazard = nil

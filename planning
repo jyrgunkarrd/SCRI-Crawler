@@ -81,3 +81,12 @@ We have block. Now traps / doors.
 We have hazards, room and corridors all working.
 
 ...Now we need the XP system, levels, and skill trees...
+
+
+Okay - we have the XP system, HP growth and stat growth.
+
+Instead of skill trees, I think we should build towards the Lexurgy system next... which means setting-up equipment slots and inventory, since spells will be bound to equipment. Probably we should also set-up corpses.
+
+
+
+

@@ -105,6 +105,7 @@ function door_room_logic.initialize(room)
             door.id = definition.id
             door.name = definition.name
             door.stats = copyStats(definition.stats)
+            door.xpreward = definition.xpreward
         elseif definition_id and definition_id ~= "" then
             print("Unknown door id: " .. tostring(definition_id))
             door.id = definition_id
