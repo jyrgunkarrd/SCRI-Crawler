@@ -152,7 +152,13 @@ local agents = {
             "BSCDECK",
 
         },
-        start_equip = {
+        actions_art = {
+            
+            { cardid = "ATK", art = "WICK_ATK" },
+            { cardid = "DFN", art = "WICK_DFN" },
+        
+        },
+        start_equip_slot = {
 
             "PHNX",
 

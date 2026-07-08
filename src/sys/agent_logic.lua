@@ -719,6 +719,8 @@ function agent_logic.drawAgentHands(room)
 
             if reason == "eliminated" and agent_logic.selected_agent == agent then
                 agent_logic.clearSelection()
+            else
+                equip_logic.drawFromEquippedLexDecks(agent)
             end
         end
     end
@@ -742,6 +744,7 @@ function agent_logic.initializeActionHand(agent, action_deck_lookup, card_index)
     agent.action_hand = {}
     burn_logic.initializeAgent(agent)
     burn_logic.drawCards(agent, nil, ACTION_HAND_SIZE)
+    equip_logic.drawFromEquippedLexDecks(agent)
 end
 
 function agent_logic.initializeActionHands(agents)

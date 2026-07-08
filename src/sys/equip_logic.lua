@@ -2,10 +2,12 @@ local equip_logic = {}
 
 local EQUIP_DIR = "data/equip"
 local EQUIP_REQUIRE_PREFIX = "data.equip."
+local CARD_INDEX_PATH = "data.cards.index"
 local INVENTORY_COLS = 10
 local INVENTORY_ROWS = 4
 
 local definition_lookup = nil
+local card_index = nil
 local next_uid = 1
 
 local function getDirectoryItems(path)
@@ -14,6 +16,31 @@ local function getDirectoryItems(path)
     end
 
     return {}
+end
+
+local function shuffle(items)
+    for index = #items, 2, -1 do
+        local swap_index = love.math.random(index)
+
+        items[index], items[swap_index] = items[swap_index], items[index]
+    end
+end
+
+local function getCardIndex()
+    if card_index then
+        return card_index
+    end
+
+    local ok, loaded = pcall(require, CARD_INDEX_PATH)
+
+    if not ok then
+        print("Unable to load card index for equipment: " .. tostring(loaded))
+        card_index = { byId = {} }
+    else
+        card_index = loaded
+    end
+
+    return card_index
 end
 
 local function normalizeSlots(definition)
@@ -79,12 +106,67 @@ local function cloneItem(definition)
         inv_w = width,
         inv_h = height,
         lock_in = definition.lock_in == true,
+        lex_deck_ids = definition.lex_deck or {},
+        lex_draw_pile = {},
+        lex_discard_pile = {},
         image_path = ("assets/images/equip/%s.webp"):format(definition.id),
     }
 
     next_uid = next_uid + 1
 
     return item
+end
+
+local function cloneLexurgyCard(card, item)
+    local clone = {}
+
+    for key, value in pairs(card or {}) do
+        clone[key] = value
+    end
+
+    clone.base_id = card and card.id or nil
+    clone.lexurgy = true
+    clone.lex_source = item
+
+    return clone
+end
+
+local function hasLexDeck(item)
+    return item and item.lex_deck_ids and #item.lex_deck_ids > 0
+end
+
+local function buildLexDeck(item)
+    if not hasLexDeck(item) then
+        return
+    end
+
+    local cards = getCardIndex()
+    item.lex_draw_pile = {}
+    item.lex_discard_pile = item.lex_discard_pile or {}
+
+    for _, card_id in ipairs(item.lex_deck_ids or {}) do
+        local card = cards.byId[card_id]
+
+        if card then
+            item.lex_draw_pile[#item.lex_draw_pile + 1] = cloneLexurgyCard(card, item)
+        else
+            print("Unknown lexurgy card id: " .. tostring(card_id))
+        end
+    end
+
+    shuffle(item.lex_draw_pile)
+    item.lex_initialized = true
+end
+
+local function reshuffleLexDiscard(item)
+    item.lex_draw_pile = item.lex_draw_pile or {}
+    item.lex_discard_pile = item.lex_discard_pile or {}
+
+    while #item.lex_discard_pile > 0 do
+        item.lex_draw_pile[#item.lex_draw_pile + 1] = table.remove(item.lex_discard_pile)
+    end
+
+    shuffle(item.lex_draw_pile)
 end
 
 function equip_logic.getDefinitions()
@@ -264,11 +346,198 @@ function equip_logic.moveToSlot(agent, item, slot_index)
     item.locked_in = item.lock_in == true
     runtime.slots[slot_index] = item
 
+    if hasLexDeck(item) then
+        if not item.lex_initialized then
+            buildLexDeck(item)
+        else
+            shuffle(item.lex_draw_pile or {})
+        end
+
+        equip_logic.drawLexurgyCard(agent, item)
+    end
+
     return true
 end
 
 function equip_logic.canDragItem(item)
     return item and not (item.location == "slot" and item.locked_in)
+end
+
+function equip_logic.hasLexurgyCardInHand(agent)
+    for _, card in ipairs(agent and agent.action_hand or {}) do
+        if card.lexurgy then
+            return true
+        end
+    end
+
+    return false
+end
+
+function equip_logic.hasLexurgyCardFromItemInHand(agent, item)
+    if not agent or not item then
+        return false
+    end
+
+    for _, card in ipairs(agent.action_hand or {}) do
+        if card.lexurgy and card.lex_source == item then
+            return true
+        end
+    end
+
+    return false
+end
+
+function equip_logic.drawLexurgyCard(agent, item)
+    if not agent or not hasLexDeck(item) then
+        return nil
+    end
+
+    if not item.lex_initialized then
+        buildLexDeck(item)
+    end
+
+    item.lex_draw_pile = item.lex_draw_pile or {}
+
+    if #item.lex_draw_pile == 0 then
+        reshuffleLexDiscard(item)
+    end
+
+    local card = table.remove(item.lex_draw_pile)
+
+    if not card then
+        return nil
+    end
+
+    card.lex_source = item
+    agent.action_hand = agent.action_hand or {}
+    agent.action_hand[#agent.action_hand + 1] = card
+
+    return card
+end
+
+function equip_logic.drawFromEquippedLexDecks(agent)
+    if not agent then
+        return nil
+    end
+
+    local runtime = ensureRuntime(agent)
+    local first_drawn = nil
+
+    for slot_index = 1, #(agent.slots or {}) do
+        local item = runtime.slots[slot_index]
+
+        if hasLexDeck(item) and not equip_logic.hasLexurgyCardFromItemInHand(agent, item) then
+            local card = equip_logic.drawLexurgyCard(agent, item)
+
+            if card and not first_drawn then
+                first_drawn = card
+            end
+        end
+    end
+
+    return first_drawn
+end
+
+function equip_logic.getEquippedLexurgyItems(agent)
+    local items = {}
+
+    if not agent then
+        return items
+    end
+
+    local runtime = ensureRuntime(agent)
+
+    for slot_index = 1, #(agent.slots or {}) do
+        local item = runtime.slots[slot_index]
+
+        if hasLexDeck(item) then
+            if not item.lex_initialized then
+                buildLexDeck(item)
+            end
+
+            items[#items + 1] = item
+        end
+    end
+
+    return items
+end
+
+function equip_logic.getLexDrawCards(item)
+    local cards = {}
+
+    if not hasLexDeck(item) then
+        return cards
+    end
+
+    if not item.lex_initialized then
+        buildLexDeck(item)
+    end
+
+    for index = #(item.lex_draw_pile or {}), 1, -1 do
+        cards[#cards + 1] = item.lex_draw_pile[index]
+    end
+
+    return cards
+end
+
+function equip_logic.getLexDiscardCards(item)
+    local cards = {}
+
+    for _, card in ipairs(item and item.lex_discard_pile or {}) do
+        cards[#cards + 1] = card
+    end
+
+    return cards
+end
+
+function equip_logic.getLexDeckDefinitionCards(item)
+    local cards = {}
+
+    if not hasLexDeck(item) then
+        return cards
+    end
+
+    local index = getCardIndex()
+
+    for _, card_id in ipairs(item.lex_deck_ids or {}) do
+        local card = index.byId[card_id]
+
+        if card then
+            cards[#cards + 1] = card
+        end
+    end
+
+    return cards
+end
+
+function equip_logic.discardLexurgyCard(card)
+    if not card or not card.lexurgy or not card.lex_source then
+        return false
+    end
+
+    local item = card.lex_source
+
+    item.lex_discard_pile = item.lex_discard_pile or {}
+    item.lex_discard_pile[#item.lex_discard_pile + 1] = card
+
+    return true
+end
+
+function equip_logic.discardLexurgyCardFromHand(agent, hand_index)
+    if not agent or not agent.action_hand or not hand_index then
+        return nil
+    end
+
+    local card = agent.action_hand[hand_index]
+
+    if not card or not card.lexurgy then
+        return nil
+    end
+
+    card = table.remove(agent.action_hand, hand_index)
+    equip_logic.discardLexurgyCard(card)
+
+    return card
 end
 
 local function placeInFirstInventorySpace(agent, item)
@@ -283,6 +552,33 @@ local function placeInFirstInventorySpace(agent, item)
     return false
 end
 
+local function placeInFirstValidSlot(agent, item)
+    for slot_index = 1, #(agent and agent.slots or {}) do
+        if equip_logic.moveToSlot(agent, item, slot_index) then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function addStartingEquipment(agent, equip_id, prefer_slot)
+    local definition = equip_logic.getDefinition(equip_id)
+
+    if not definition then
+        print("Unknown start equipment id: " .. tostring(equip_id))
+        return
+    end
+
+    local item = cloneItem(definition)
+
+    if prefer_slot and placeInFirstValidSlot(agent, item) then
+        return
+    end
+
+    placeInFirstInventorySpace(agent, item)
+end
+
 function equip_logic.initializeAgent(agent)
     if not agent then
         return
@@ -294,14 +590,12 @@ function equip_logic.initializeAgent(agent)
 
     ensureRuntime(agent)
 
-    for _, equip_id in ipairs(agent.start_equip or {}) do
-        local definition = equip_logic.getDefinition(equip_id)
+    for _, equip_id in ipairs(agent.start_equip_slot or {}) do
+        addStartingEquipment(agent, equip_id, true)
+    end
 
-        if definition then
-            placeInFirstInventorySpace(agent, cloneItem(definition))
-        else
-            print("Unknown start equipment id: " .. tostring(equip_id))
-        end
+    for _, equip_id in ipairs(agent.start_equip or {}) do
+        addStartingEquipment(agent, equip_id, false)
     end
 end
 

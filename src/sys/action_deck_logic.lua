@@ -149,17 +149,20 @@ function action_deck_logic.drawCards(agent, count)
     return drawn
 end
 
-function action_deck_logic.discardHand(agent)
+function action_deck_logic.discardHand(agent, options)
     if not agent or not agent.action_hand then
         return
     end
 
+    options = options or {}
     agent.action_discard_pile = agent.action_discard_pile or {}
 
     for index = #agent.action_hand, 1, -1 do
         local card = agent.action_hand[index]
 
-        if not action_deck_logic.isCardFatigued(agent, card) then
+        if card and card.lexurgy and not options.include_lexurgy then
+            -- Kept Lexurgy cards stay in hand across normal end-of-round discard.
+        elseif not action_deck_logic.isCardFatigued(agent, card) then
             agent.action_discard_pile[#agent.action_discard_pile + 1] = table.remove(agent.action_hand, index)
         end
     end

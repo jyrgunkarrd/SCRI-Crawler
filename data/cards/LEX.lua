@@ -9,6 +9,12 @@ local lex_cards = {
         cost = 1,
         rarity = "lex",
         textbox = "Deal 6 damage to an enemy.\n\nRange 4.",
+        tags = {
+
+            "Flame",
+            "Lexurgy",
+
+        },
         play_func = {
 
             targ = "enemy",

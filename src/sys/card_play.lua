@@ -7,6 +7,8 @@ local burn_logic = require("src.sys.burn_logic")
 local block_logic = require("src.sys.block_logic")
 local door_room_logic = require("src.sys.door_room_logic")
 local XP_levels = require("src.sys.XP_levels")
+local equip_logic = require("src.sys.equip_logic")
+local corpse_logic = require("src.sys.corpse_logic")
 
 local card_play = {
     drag = nil,
@@ -94,6 +96,10 @@ end
 
 local function getCurrentAp(agent)
     return getRuntimeStat(agent, "ap").current
+end
+
+local function getCurrentLp(agent)
+    return getRuntimeStat(agent, "lp").current
 end
 
 local function getPlayFunc(card)
@@ -243,7 +249,7 @@ end
 
 local function eliminateTarget(room, target_tile, target_unit)
     if target_tile.enemy == target_unit then
-        target_tile.enemy = nil
+        corpse_logic.replaceEnemy(target_tile, target_unit)
 
         if agent_logic.getSelectedEnemy and agent_logic.getSelectedEnemy() == target_unit then
             agent_logic.clearSelection()
@@ -261,7 +267,7 @@ local function eliminateTarget(room, target_tile, target_unit)
     end
 end
 
-local function damageTarget(room, target_tile, target_unit, damage)
+local function damageTarget(room, target_tile, target_unit, damage, options)
     local original_damage = math.max(0, math.floor(tonumber(damage) or 0))
     local blocked_amount = 0
 
@@ -295,7 +301,9 @@ local function damageTarget(room, target_tile, target_unit, damage)
             }
         end
 
-        eliminateTarget(room, target_tile, target_unit)
+        if not (options and options.defer_elimination and target_tile.enemy == target_unit) then
+            eliminateTarget(room, target_tile, target_unit)
+        end
     end
 
     return {
@@ -357,13 +365,30 @@ local function damageDoor(door, card, value)
 end
 
 local function removeCardFromHand(agent, hand_index)
+    local card = agent and agent.action_hand and agent.action_hand[hand_index]
+
+    if card and card.lexurgy then
+        return equip_logic.discardLexurgyCardFromHand(agent, hand_index)
+    end
+
     action_deck_logic.discardFromHand(agent, hand_index)
 end
 
+local function payCardCost(agent, card)
+    local stat = getRuntimeStat(agent, card and card.lexurgy and "lp" or "ap")
+
+    stat.current = math.max(0, stat.current - getCardCost(card))
+end
+
 function card_play.canPay(agent, card)
-    return agent
-        and not action_deck_logic.isCardFatigued(agent, card)
-        and getCurrentAp(agent) >= getCardCost(card)
+    if not agent then
+        return false
+    end
+
+    local current_resource = card and card.lexurgy and getCurrentLp(agent) or getCurrentAp(agent)
+
+    return not action_deck_logic.isCardFatigued(agent, card)
+        and current_resource >= getCardCost(card)
 end
 
 function card_play.startDrag(agent, source_tile, card, hand_index)
@@ -452,11 +477,10 @@ function card_play.release(room, x, y, camera_x, camera_y)
     local target_door = door_room_logic.getDoorAtPoint(room, x, y, camera_x, camera_y)
 
     if target_door and canTargetDoor(drag.card, target_door, drag.source_tile, room) then
-        local ap = getRuntimeStat(drag.agent, "ap")
         local value = getPlayFunc(drag.card).targ == "door" and getBypass(drag.card) or getDamage(drag.card)
         local fate_card = nil
 
-        ap.current = math.max(0, ap.current - getCardCost(drag.card))
+        payCardCost(drag.agent, drag.card)
 
         value, fate_card = fate_logic.applyDamageModifier(drag.agent, value)
         local result = damageDoor(target_door, drag.card, value)
@@ -484,9 +508,7 @@ function card_play.release(room, x, y, camera_x, camera_y)
     local target_kind = target_tile.hazard == target_unit and "hazard"
         or target_tile.enemy == target_unit and "enemy"
         or "agent"
-    local ap = getRuntimeStat(drag.agent, "ap")
-
-    ap.current = math.max(0, ap.current - getCardCost(drag.card))
+    payCardCost(drag.agent, drag.card)
 
     if hasBlock(drag.card) then
         block_logic.addBlock(target_unit, getBlock(drag.card))
@@ -504,12 +526,13 @@ function card_play.release(room, x, y, camera_x, camera_y)
 
     local result = target_kind == "hazard" and getPlayFunc(drag.card).targ == "door"
         and damageHazardBp(target_tile, target_unit, damage)
-        or damageTarget(room, target_tile, target_unit, damage)
+        or damageTarget(room, target_tile, target_unit, damage, { defer_elimination = target_kind == "enemy" })
 
     removeCardFromHand(drag.agent, drag.hand_index)
     agent_logic.refreshMovementRange(room)
 
     return true, {
+        room = room,
         agent = drag.agent,
         target = target_unit,
         target_kind = target_kind,
@@ -521,6 +544,7 @@ function card_play.release(room, x, y, camera_x, camera_y)
         burned = result.burned,
         blocked = result.blocked,
         failed = fate_card and fate_card.fail or false,
+        deferred_enemy_elimination_tile = result.eliminated and target_kind == "enemy" and target_tile or nil,
         xp_agent = result.eliminated and (target_kind == "enemy" or target_kind == "hazard") and drag.agent or nil,
         xp_target = result.eliminated and (target_kind == "enemy" or target_kind == "hazard") and target_unit or nil,
     }

@@ -2,6 +2,8 @@ local card_vis = require("src.rndr.card_vis")
 local image_loader = require("src.assets.image_loader")
 local sfx_logic = require("src.sys.sfx_logic")
 local XP_levels = require("src.sys.XP_levels")
+local corpse_logic = require("src.sys.corpse_logic")
+local agent_logic = require("src.sys.agent_logic")
 local burn_palette = require("data.burn_palette")
 
 local action_vis = {}
@@ -370,6 +372,15 @@ function action_vis.update(dt)
 
     if active.elapsed >= active.total_duration then
         local event = active.event
+
+        if event and event.deferred_enemy_elimination_tile and event.target then
+            corpse_logic.replaceEnemy(event.deferred_enemy_elimination_tile, event.target)
+            if agent_logic.getSelectedEnemy and agent_logic.getSelectedEnemy() == event.target then
+                agent_logic.clearSelection()
+            end
+            agent_logic.refreshMovementRange(event.room)
+            event.deferred_enemy_elimination_tile = nil
+        end
 
         if event and event.xp_agent and event.xp_target and not event.xp_awarded then
             XP_levels.awardDefeat(event.xp_agent, event.xp_target)

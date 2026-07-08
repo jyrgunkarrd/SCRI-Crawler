@@ -8,6 +8,8 @@ local block_logic = require("src.sys.block_logic")
 local XP_levels = require("src.sys.XP_levels")
 local sfx_logic = require("src.sys.sfx_logic")
 local equip_logic = require("src.sys.equip_logic")
+local card_play = require("src.sys.card_play")
+local card_vis = require("src.rndr.card_vis")
 
 local agent_uix = {}
 
@@ -101,6 +103,14 @@ local DECK_BUTTON_SIZE = 74
 local DECK_BUTTON_GAP = 16
 local DECK_BUTTON_ICON_PAD = 14
 local DECK_ICON_PATH = "assets/images/icons/deck.webp"
+local EQUIP_PREVIEW_PAD = 18
+local EQUIP_PREVIEW_IMAGE_SIZE = 150
+local EQUIP_PREVIEW_THUMB_W = 45
+local EQUIP_PREVIEW_THUMB_H = 61
+local EQUIP_PREVIEW_THUMB_GAP = 6
+local EQUIP_PREVIEW_ROW_GAP = 10
+local EQUIP_PREVIEW_HEADER_H = 30
+local EQUIP_PREVIEW_CLICK_DRAG_THRESHOLD = 6
 local full_images = {}
 local missing_full_images = {}
 local equip_images = {}
@@ -113,6 +123,8 @@ local block_icon_font
 local modal_unit = nil
 local modal_kind = nil
 local equip_drag = nil
+local pinned_equipment = nil
+local hovered_preview_card_key = nil
 local BLOCK_GLYPH = "\239\143\173"
 local BLOCK_COLOR = { 0.7412, 0.6824, 0.7176, 1 }
 local STAT_COLORS = {
@@ -699,7 +711,7 @@ local function getFateValueColor(entry)
     return FATE_POS_COLOR
 end
 
-local function drawFullImageWindow(unit, kind, layout)
+local function drawFullImageWindow(unit, kind, layout, dim_image)
     local image = getFullImage(unit, kind)
     local fallback_label = kind == "enemy" and "Enemy" or "Agent"
     local title_w = math.min(layout.image_w, math.max(180, love.graphics.getFont():getWidth(unit.name or unit.id or fallback_label) + 28))
@@ -713,6 +725,10 @@ local function drawFullImageWindow(unit, kind, layout)
     love.graphics.rectangle("fill", layout.image_x, layout.image_y, layout.image_w, layout.image_h)
 
     if not image then
+        if dim_image then
+            love.graphics.setColor(0, 0, 0, 0.58)
+            love.graphics.rectangle("fill", layout.image_x, layout.image_y, layout.image_w, layout.image_h)
+        end
         return
     end
 
@@ -731,6 +747,11 @@ local function drawFullImageWindow(unit, kind, layout)
         image:getHeight() / 2
     )
     love.graphics.setScissor()
+
+    if dim_image then
+        love.graphics.setColor(0, 0, 0, 0.58)
+        love.graphics.rectangle("fill", layout.image_x, layout.image_y, layout.image_w, layout.image_h)
+    end
 end
 
 local function getDeckButtonRect(layout)
@@ -849,6 +870,192 @@ local function drawEquipmentItem(item, x, y, w, h, alpha)
     love.graphics.setLineWidth(2)
     love.graphics.rectangle("line", x, y, w, h)
     love.graphics.setLineWidth(1)
+end
+
+local function getStatRequirementText(requirement)
+    local stat = tostring(requirement.stat or ""):upper()
+
+    return ("Requires %s %d"):format(stat, math.floor(tonumber(requirement.value) or 0))
+end
+
+local function getEquipmentPreviewLayout(layout)
+    local panel_w = layout.image_w - EQUIP_PREVIEW_PAD * 4
+    local panel_h = layout.image_h - EQUIP_PREVIEW_PAD * 4
+    local panel_x = layout.image_x + (layout.image_w - panel_w) / 2
+    local panel_y = layout.image_y + (layout.image_h - panel_h) / 2
+
+    return {
+        x = panel_x,
+        y = panel_y,
+        w = panel_w,
+        h = panel_h,
+        content_x = panel_x + EQUIP_PREVIEW_PAD,
+        content_y = panel_y + EQUIP_PREVIEW_PAD,
+        content_w = panel_w - EQUIP_PREVIEW_PAD * 2,
+    }
+end
+
+local function getEquipmentPreviewLexRow(item, preview)
+    local cards = equip_logic.getLexDeckDefinitionCards(item)
+    local y = preview.content_y + EQUIP_PREVIEW_HEADER_H + EQUIP_PREVIEW_ROW_GAP
+        + EQUIP_PREVIEW_IMAGE_SIZE + EQUIP_PREVIEW_ROW_GAP
+
+    if item.stat_req and #item.stat_req > 0 then
+        y = y + #item.stat_req * 22 + EQUIP_PREVIEW_ROW_GAP
+    end
+
+    if #cards == 0 then
+        return {
+            cards = cards,
+            x = preview.content_x,
+            y = y,
+            w = preview.content_w,
+            h = 0,
+            visible_count = 0,
+            start_x = preview.content_x,
+        }
+    end
+
+    local w = preview.content_w
+    local max_cols = math.max(1, math.floor((w + EQUIP_PREVIEW_THUMB_GAP) / (EQUIP_PREVIEW_THUMB_W + EQUIP_PREVIEW_THUMB_GAP)))
+    local visible_count = math.min(#cards, max_cols)
+    local row_w = visible_count * EQUIP_PREVIEW_THUMB_W + (visible_count - 1) * EQUIP_PREVIEW_THUMB_GAP
+
+    return {
+        cards = cards,
+        x = preview.content_x,
+        y = y,
+        w = w,
+        h = EQUIP_PREVIEW_THUMB_H,
+        visible_count = visible_count,
+        start_x = preview.content_x + (w - row_w) / 2,
+    }
+end
+
+local function getEquipmentPreviewLexCardAt(item, layout, mouse_x, mouse_y)
+    if not item then
+        return nil
+    end
+
+    local row = getEquipmentPreviewLexRow(item, getEquipmentPreviewLayout(layout))
+
+    if row.visible_count == 0
+        or mouse_x < row.x
+        or mouse_x > row.x + row.w
+        or mouse_y < row.y
+        or mouse_y > row.y + row.h
+    then
+        return nil
+    end
+
+    for index = 1, row.visible_count do
+        local thumb_x = row.start_x + (index - 1) * (EQUIP_PREVIEW_THUMB_W + EQUIP_PREVIEW_THUMB_GAP)
+
+        if mouse_x >= thumb_x and mouse_x <= thumb_x + EQUIP_PREVIEW_THUMB_W then
+            return row.cards[index]
+        end
+    end
+
+    return nil
+end
+
+local function drawEquipmentPreviewLexRow(item, preview)
+    local row = getEquipmentPreviewLexRow(item, preview)
+
+    if row.visible_count == 0 then
+        return
+    end
+
+    for index = 1, row.visible_count do
+        local thumb_x = row.start_x + (index - 1) * (EQUIP_PREVIEW_THUMB_W + EQUIP_PREVIEW_THUMB_GAP)
+
+        love.graphics.setColor(0.035, 0.032, 0.028, 1)
+        love.graphics.rectangle("fill", thumb_x, row.y, EQUIP_PREVIEW_THUMB_W, EQUIP_PREVIEW_THUMB_H)
+        card_vis.drawCardPortrait(row.cards[index], thumb_x, row.y, EQUIP_PREVIEW_THUMB_W, EQUIP_PREVIEW_THUMB_H)
+        love.graphics.setColor(MODAL_BORDER_COLOR)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", thumb_x, row.y, EQUIP_PREVIEW_THUMB_W, EQUIP_PREVIEW_THUMB_H)
+        love.graphics.setLineWidth(1)
+    end
+end
+
+local function drawEquipmentHoverPreview(item, layout)
+    if not item then
+        return
+    end
+
+    local preview = getEquipmentPreviewLayout(layout)
+    local previous_font = love.graphics.getFont()
+    local image = getEquipImage(item)
+    local content_x = preview.content_x
+    local content_w = preview.content_w
+    local cursor_y = preview.content_y
+
+    love.graphics.setColor(MODAL_FILL_COLOR)
+    love.graphics.rectangle("fill", preview.x, preview.y, preview.w, preview.h)
+    love.graphics.setColor(MODAL_BORDER_COLOR)
+    love.graphics.setLineWidth(3)
+    love.graphics.rectangle("line", preview.x, preview.y, preview.w, preview.h)
+    love.graphics.setLineWidth(1)
+
+    love.graphics.setColor(TEXT_COLOR)
+    love.graphics.printf(item.name or item.id or "Equipment", content_x, cursor_y + 5, content_w, "center")
+    cursor_y = cursor_y + EQUIP_PREVIEW_HEADER_H + EQUIP_PREVIEW_ROW_GAP
+
+    local image_x = content_x + (content_w - EQUIP_PREVIEW_IMAGE_SIZE) / 2
+
+    love.graphics.setColor(0.015, 0.014, 0.012, 1)
+    love.graphics.rectangle("fill", image_x, cursor_y, EQUIP_PREVIEW_IMAGE_SIZE, EQUIP_PREVIEW_IMAGE_SIZE)
+    love.graphics.setColor(MODAL_BORDER_COLOR)
+    love.graphics.rectangle("line", image_x, cursor_y, EQUIP_PREVIEW_IMAGE_SIZE, EQUIP_PREVIEW_IMAGE_SIZE)
+
+    if image then
+        local scale = math.min(EQUIP_PREVIEW_IMAGE_SIZE / image:getWidth(), EQUIP_PREVIEW_IMAGE_SIZE / image:getHeight())
+
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(
+            image,
+            image_x + EQUIP_PREVIEW_IMAGE_SIZE / 2,
+            cursor_y + EQUIP_PREVIEW_IMAGE_SIZE / 2,
+            0,
+            scale,
+            scale,
+            image:getWidth() / 2,
+            image:getHeight() / 2
+        )
+    end
+
+    cursor_y = cursor_y + EQUIP_PREVIEW_IMAGE_SIZE + EQUIP_PREVIEW_ROW_GAP
+
+    if item.stat_req and #item.stat_req > 0 then
+        for _, requirement in ipairs(item.stat_req) do
+            love.graphics.setColor(TEXT_COLOR)
+            love.graphics.printf(getStatRequirementText(requirement), content_x, cursor_y, content_w, "center")
+            cursor_y = cursor_y + 22
+        end
+
+        cursor_y = cursor_y + EQUIP_PREVIEW_ROW_GAP
+    end
+
+    drawEquipmentPreviewLexRow(item, preview)
+
+    love.graphics.setFont(previous_font)
+end
+
+local function drawEquipmentLexCardPreview(card, layout)
+    if not card then
+        return
+    end
+
+    local card_w = card_vis.getCardWidth()
+    local card_h = card_vis.getCardHeight(card)
+    local right_x = layout.slot_x
+    local right_w = layout.slot_w + MODAL_GAP + layout.deck_w
+    local scale = math.min(1.1, (layout.image_h - EQUIP_PREVIEW_PAD * 2) / card_h)
+    local x = right_x + (right_w - card_w * scale) / 2
+    local y = layout.image_y + (layout.image_h - card_h * scale) / 2
+
+    card_vis.drawScaledCard(card, x, y, scale)
 end
 
 local function getInventoryItemRect(item, inventory)
@@ -1099,18 +1306,43 @@ local function drawFateModal()
     end
 
     local layout = (modal_kind == "enemy" or modal_kind == "hazard") and getEnemyModalLayout() or getModalLayout()
+    local hovered_equipment = nil
+    local preview_equipment = nil
+    local hovered_preview_card = nil
+
+    if modal_kind ~= "enemy" and modal_kind ~= "hazard" and layout.slot_x and not equip_drag then
+        local mouse_x, mouse_y = love.mouse.getPosition()
+
+        hovered_equipment = findEquipmentAtPoint(modal_unit, layout, mouse_x, mouse_y)
+        preview_equipment = pinned_equipment or hovered_equipment
+        hovered_preview_card = getEquipmentPreviewLexCardAt(preview_equipment, layout, mouse_x, mouse_y)
+    else
+        preview_equipment = nil
+    end
+
+    local preview_card_key = hovered_preview_card and (hovered_preview_card.id or hovered_preview_card.name) or nil
+
+    if preview_card_key ~= hovered_preview_card_key then
+        hovered_preview_card_key = preview_card_key
+
+        if preview_card_key then
+            sfx_logic.playNamed("cardhover")
+        end
+    end
 
     love.graphics.setColor(MODAL_BACKDROP_COLOR)
     love.graphics.rectangle("fill", 0, 0, love.graphics.getWidth(), love.graphics.getHeight())
 
-    drawFullImageWindow(modal_unit, modal_kind, layout)
+    drawFullImageWindow(modal_unit, modal_kind, layout, preview_equipment ~= nil)
 
     if modal_kind ~= "enemy" and modal_kind ~= "hazard" then
         drawDeckButton(layout)
         drawSlotWindow(modal_unit, layout)
+        drawEquipmentHoverPreview(preview_equipment, layout)
     end
 
     drawFateDeckWindow(modal_unit, layout)
+    drawEquipmentLexCardPreview(hovered_preview_card, layout)
     drawDraggedEquipment()
 
     love.graphics.setColor(1, 1, 1, 1)
@@ -1126,7 +1358,20 @@ function agent_uix.draw()
     local stats = agent_logic.getSelectedStats()
     local block_value = block_logic.getBlock(unit)
     local preview = agent_logic.getMovementPreview()
+    local dragged_card = card_play.getDraggedCard()
     local pending_ap_cost = kind == "agent" and preview and preview.cost or nil
+    local pending_lp_cost = nil
+
+    if kind == "agent" and dragged_card then
+        local card_cost = math.max(0, math.floor(tonumber(dragged_card.cost) or 0))
+
+        if dragged_card.lexurgy then
+            pending_ap_cost = nil
+            pending_lp_cost = card_cost
+        else
+            pending_ap_cost = card_cost
+        end
+    end
     local stat_order = kind == "door" and DOOR_STAT_ORDER
         or kind == "hazard" and HAZARD_STAT_ORDER
         or kind == "enemy" and ENEMY_STAT_ORDER
@@ -1158,7 +1403,7 @@ function agent_uix.draw()
             stats[stat.id],
             STAT_COLORS[stat.id],
             index,
-            stat.id == "ap" and pending_ap_cost or nil,
+            stat.id == "ap" and pending_ap_cost or stat.id == "lp" and pending_lp_cost or nil,
             stat_y,
             kind ~= "door" and stat.id == "hp" and block_value or nil,
             content_x,
@@ -1176,6 +1421,12 @@ end
 function agent_uix.mousepressed(x, y, button)
     if modal_unit then
         if action_deck_viewer.mousepressed(x, y, button) then
+            return true
+        end
+
+        if button == 2 and pinned_equipment then
+            pinned_equipment = nil
+            hovered_preview_card_key = nil
             return true
         end
 
@@ -1204,6 +1455,16 @@ function agent_uix.mousepressed(x, y, button)
                 or (points_rect and pointInRect(x, y, points_rect.x, points_rect.y, points_rect.w, points_rect.h))
         end
 
+        if pinned_equipment and not equipment_item then
+            local preview = getEquipmentPreviewLayout(layout)
+
+            if not pointInRect(x, y, preview.x, preview.y, preview.w, preview.h) then
+                pinned_equipment = nil
+                hovered_preview_card_key = nil
+                return true
+            end
+        end
+
         if equipment_item and equip_logic.canDragItem(equipment_item) then
             local inventory = getInventoryLayout(layout)
             local rect = equipment_item.location == "inventory" and getInventoryItemRect(equipment_item, inventory)
@@ -1214,7 +1475,12 @@ function agent_uix.mousepressed(x, y, button)
                 item = equipment_item,
                 w = rect and rect.w or SLOT_BOX_W,
                 h = rect and rect.h or SLOT_BOX_H,
+                start_x = x,
+                start_y = y,
             }
+        elseif equipment_item then
+            pinned_equipment = equipment_item
+            hovered_preview_card_key = nil
         elseif stat_button then
             if XP_levels.spendStatPoint(modal_unit, stat_button.stat_id) then
                 sfx_logic.playNamed("token_select")
@@ -1224,6 +1490,8 @@ function agent_uix.mousepressed(x, y, button)
         elseif not in_image and not in_slot and not in_deck and not in_stat_controls then
             modal_unit = nil
             modal_kind = nil
+            pinned_equipment = nil
+            hovered_preview_card_key = nil
         end
 
         return true
@@ -1238,6 +1506,8 @@ function agent_uix.mousepressed(x, y, button)
     if unit and kind ~= "door" and pointInRect(x, y, PORTRAIT_BOX_X, PORTRAIT_BOX_Y, PORTRAIT_BOX_SIZE, PORTRAIT_BOX_SIZE) then
         modal_unit = unit
         modal_kind = kind
+        pinned_equipment = nil
+        hovered_preview_card_key = nil
         sfx_logic.playNamed("token_select")
         return true
     end
@@ -1254,6 +1524,14 @@ function agent_uix.mousereleased(x, y, button)
     equip_drag = nil
 
     if not modal_unit or modal_unit ~= drag.agent or modal_kind == "enemy" or modal_kind == "hazard" then
+        return true
+    end
+
+    local moved = math.sqrt((x - (drag.start_x or x)) ^ 2 + (y - (drag.start_y or y)) ^ 2)
+
+    if moved <= EQUIP_PREVIEW_CLICK_DRAG_THRESHOLD then
+        pinned_equipment = drag.item
+        hovered_preview_card_key = nil
         return true
     end
 
@@ -1281,6 +1559,8 @@ end
 
 function agent_uix.closeModal()
     equip_drag = nil
+    pinned_equipment = nil
+    hovered_preview_card_key = nil
 
     if action_deck_viewer.close() then
         return true

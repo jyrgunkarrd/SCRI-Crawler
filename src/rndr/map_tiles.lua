@@ -29,13 +29,15 @@ local ELIMINATION_ANIMATION_SECONDS = 0.55
 local ELIMINATION_MIN_SCALE = 0.72
 local BLOCK_GLYPH = "\239\143\173"
 local BLOCK_COLOR = { 0.7412, 0.6824, 0.7176, 1 }
-local BLOCK_OVERLAY_SIZE = 34
-local BLOCK_OVERLAY_FONT_SIZE = 25
-local BLOCK_OVERLAY_PULSE_SPEED = 3.2
+local BLOCK_OVERLAY_FONT_SIZE = 18
 local BLOCK_OVERLAY_RING_SECONDS = 0.28
 local BLOCK_OVERLAY_RING_START_RADIUS = PORTRAIT_RADIUS * 0.56
 local BLOCK_OVERLAY_RING_END_RADIUS = PORTRAIT_RADIUS * 1.18
 local BLOCK_OVERLAY_RING_WIDTH = 5
+local CORPSE_BADGE_GLYPH = "\239\149\140"
+local TOKEN_BADGE_RADIUS = 15
+local TOKEN_BADGE_FONT_SIZE = 18
+local TOKEN_BADGE_Y_OFFSET = PORTRAIT_RADIUS * 0.68
 local agent_portraits = {}
 local missing_agent_portraits = {}
 local enemy_portraits = {}
@@ -46,6 +48,8 @@ local agent_eliminations = {}
 local agent_elimination_sound_played = false
 local block_overlay_font = nil
 local block_overlay_states = setmetatable({}, { __mode = "k" })
+local corpse_greyscale_shader = nil
+local corpse_badge_font = nil
 
 local function hexToColor(hex, alpha)
     if type(hex) ~= "string" or #hex < 6 then
@@ -206,7 +210,24 @@ local function getAgentCurrentAp(agent)
     return agent.runtime_stats.ap.current
 end
 
-local function drawHexPortrait(image, center_x, center_y, radius, color, outline_color, inset_outline_radius, outer_outline_color)
+local function getCorpseGreyscaleShader()
+    if corpse_greyscale_shader then
+        return corpse_greyscale_shader
+    end
+
+    corpse_greyscale_shader = love.graphics.newShader([[
+        vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords)
+        {
+            vec4 pixel = Texel(texture, texture_coords) * color;
+            float grey = dot(pixel.rgb, vec3(0.299, 0.587, 0.114));
+            return vec4(vec3(grey), pixel.a);
+        }
+    ]])
+
+    return corpse_greyscale_shader
+end
+
+local function drawHexPortrait(image, center_x, center_y, radius, color, outline_color, inset_outline_radius, outer_outline_color, image_shader)
     local points = buildHexPoints(center_x, center_y, radius)
     local scale = (radius * 2) / math.min(image:getWidth(), image:getHeight())
 
@@ -216,6 +237,9 @@ local function drawHexPortrait(image, center_x, center_y, radius, color, outline
 
     love.graphics.setStencilTest("equal", 1)
     love.graphics.setColor(color)
+    if image_shader then
+        love.graphics.setShader(image_shader)
+    end
     love.graphics.draw(
         image,
         center_x,
@@ -226,6 +250,9 @@ local function drawHexPortrait(image, center_x, center_y, radius, color, outline
         image:getWidth() / 2,
         image:getHeight() / 2
     )
+    if image_shader then
+        love.graphics.setShader()
+    end
     love.graphics.setStencilTest()
 
     love.graphics.setLineWidth(3)
@@ -261,8 +288,6 @@ local function drawBlockOverlay(unit, center_x, center_y)
         state.pulse_id = pulse_id
     end
 
-    local pulse = math.sin(love.timer.getTime() * BLOCK_OVERLAY_PULSE_SPEED) * 0.5 + 0.5
-
     if state.elapsed < BLOCK_OVERLAY_RING_SECONDS then
         local t = math.max(0, math.min(state.elapsed / BLOCK_OVERLAY_RING_SECONDS, 1))
         local eased = 1 - (1 - t) * (1 - t) * (1 - t)
@@ -276,18 +301,17 @@ local function drawBlockOverlay(unit, center_x, center_y)
         love.graphics.setLineWidth(1)
     end
 
-    local x = center_x - BLOCK_OVERLAY_SIZE / 2
-    local y = center_y - BLOCK_OVERLAY_SIZE / 2
+    local badge_y = center_y + TOKEN_BADGE_Y_OFFSET
     local previous_font = love.graphics.getFont()
 
-    love.graphics.setColor(0, 0, 0, pulse)
-    love.graphics.rectangle("fill", x, y, BLOCK_OVERLAY_SIZE, BLOCK_OVERLAY_SIZE)
-    love.graphics.setColor(BLOCK_COLOR[1], BLOCK_COLOR[2], BLOCK_COLOR[3], pulse)
+    love.graphics.setColor(0, 0, 0, 1)
+    love.graphics.circle("fill", center_x, badge_y, TOKEN_BADGE_RADIUS, 48)
+    love.graphics.setColor(1, 1, 1, 1)
     love.graphics.setFont(block_overlay_font)
     love.graphics.print(
         BLOCK_GLYPH,
         center_x - block_overlay_font:getWidth(BLOCK_GLYPH) / 2,
-        center_y - block_overlay_font:getHeight() / 2 - 1
+        badge_y - block_overlay_font:getHeight() / 2
     )
     love.graphics.setFont(previous_font)
 end
@@ -382,6 +406,48 @@ local function drawHazardPortraitTile(tile, center_x, center_y, selected)
         PORTRAIT_OUTLINE_COLOR
     )
     drawBlockOverlay(tile.hazard, center_x, center_y)
+end
+
+local function drawCorpsePortraitTile(tile, center_x, center_y)
+    if not tile.corpse or tile.agent or tile.enemy or tile.hazard then
+        return
+    end
+
+    local image = getEnemyPortrait(tile.corpse)
+
+    if not image then
+        return
+    end
+
+    drawHexPortrait(
+        image,
+        center_x,
+        center_y,
+        PORTRAIT_RADIUS,
+        { 1, 1, 1, 1 },
+        PORTRAIT_OUTLINE_COLOR,
+        nil,
+        nil,
+        getCorpseGreyscaleShader()
+    )
+
+    if not corpse_badge_font then
+        corpse_badge_font = love.graphics.newFont("assets/fonts/icons.otf", TOKEN_BADGE_FONT_SIZE)
+    end
+
+    local badge_y = center_y + TOKEN_BADGE_Y_OFFSET
+    local previous_font = love.graphics.getFont()
+
+    love.graphics.setColor(0, 0, 0, 1)
+    love.graphics.circle("fill", center_x, badge_y, TOKEN_BADGE_RADIUS, 48)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.setFont(corpse_badge_font)
+    love.graphics.print(
+        CORPSE_BADGE_GLYPH,
+        center_x - corpse_badge_font:getWidth(CORPSE_BADGE_GLYPH) / 2,
+        badge_y - corpse_badge_font:getHeight() / 2 - 1
+    )
+    love.graphics.setFont(previous_font)
 end
 
 local function drawMovingPortrait(unit, kind, center_x, center_y)
@@ -513,15 +579,18 @@ function map_tiles.drawPortraits(room, camera_x, camera_y, selected_tile, moving
 
     for _, tile in ipairs(room.tiles) do
         local x, y = axialToPixel(tile.q, tile.r)
+        local center_x = x + offset_x
+        local center_y = y + offset_y
 
-        drawHazardPortraitTile(tile, x + offset_x, y + offset_y, tile == selected_tile)
+        drawCorpsePortraitTile(tile, center_x, center_y)
+        drawHazardPortraitTile(tile, center_x, center_y, tile == selected_tile)
 
         if tile.enemy ~= moving_unit or moving_kind ~= "enemy" then
-            drawEnemyPortraitTile(tile, x + offset_x, y + offset_y, tile == selected_tile)
+            drawEnemyPortraitTile(tile, center_x, center_y, tile == selected_tile)
         end
 
         if tile.agent ~= moving_unit or moving_kind == "enemy" then
-            drawAgentPortraitTile(tile, x + offset_x, y + offset_y, tile == selected_tile)
+            drawAgentPortraitTile(tile, center_x, center_y, tile == selected_tile)
         end
     end
 

@@ -4,6 +4,7 @@ local map_tiles = require("src.rndr.map_tiles")
 local burn_logic = require("src.sys.burn_logic")
 local block_logic = require("src.sys.block_logic")
 local door_room_logic = require("src.sys.door_room_logic")
+local corpse_logic = require("src.sys.corpse_logic")
 
 local enemy_ai = {}
 
@@ -262,10 +263,20 @@ end
 local function removeEliminatedEnemy(room, enemy)
     for _, tile in ipairs(room and room.tiles or {}) do
         if tile.enemy == enemy then
-            tile.enemy = nil
+            corpse_logic.replaceEnemy(tile, enemy)
             return
         end
     end
+end
+
+local function getEnemyTile(room, enemy)
+    for _, tile in ipairs(room and room.tiles or {}) do
+        if tile.enemy == enemy then
+            return tile
+        end
+    end
+
+    return nil
 end
 
 local function removeEliminatedAgent(room, agent)
@@ -316,11 +327,13 @@ local function queueHazardAttack(room, hazard_tile, target, target_kind)
     local damage, fate_card = fate_logic.applyDamageModifier(hazard, base_damage)
     local damaged, eliminated, burned, blocked, final_damage = applyDamage(room, target, damage)
 
+    local deferred_enemy_elimination_tile = nil
+
     if eliminated then
         if target_kind == "agent" then
             removeEliminatedAgent(room, target)
         elseif target_kind == "enemy" then
-            removeEliminatedEnemy(room, target)
+            deferred_enemy_elimination_tile = getEnemyTile(room, target)
         end
     end
 
@@ -339,6 +352,7 @@ local function queueHazardAttack(room, hazard_tile, target, target_kind)
     )
     event.hazard_tile = hazard_tile
     event.remove_hazard_after = true
+    event.deferred_enemy_elimination_tile = deferred_enemy_elimination_tile
 
     pending_hazard_events[#pending_hazard_events + 1] = event
 

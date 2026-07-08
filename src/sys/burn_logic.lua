@@ -1,5 +1,6 @@
 local action_deck_logic = require("src.sys.action_deck_logic")
 local map_tiles = require("src.rndr.map_tiles")
+local equip_logic = require("src.sys.equip_logic")
 
 local burn_logic = {}
 
@@ -83,6 +84,21 @@ local function getHpRuntime(agent)
     return agent.runtime_stats.hp
 end
 
+local function discardLexurgyCardsFromHand(agent)
+    if not agent or not agent.action_hand then
+        return
+    end
+
+    for index = #agent.action_hand, 1, -1 do
+        local card = agent.action_hand[index]
+
+        if card and card.lexurgy then
+            table.remove(agent.action_hand, index)
+            equip_logic.discardLexurgyCard(card)
+        end
+    end
+end
+
 function burn_logic.getBurnLevel(agent)
     return math.max(0, math.floor(tonumber(agent and agent.burn_level) or 0))
 end
@@ -109,6 +125,7 @@ function burn_logic.accumulateBurn(agent, room, options)
     end
 
     agent.burn_level = current_burn + 1
+    discardLexurgyCardsFromHand(agent)
     action_deck_logic.discardHand(agent)
     moveDiscardIntoDrawPile(agent)
     fatigueEligibleSlots(agent)
@@ -165,7 +182,15 @@ function burn_logic.drawHand(agent, room, hand_size, options)
         return 0, "missing_agent"
     end
 
-    agent.action_hand = {}
+    local kept_lexurgy = {}
+
+    for _, card in ipairs(agent.action_hand or {}) do
+        if card.lexurgy then
+            kept_lexurgy[#kept_lexurgy + 1] = card
+        end
+    end
+
+    agent.action_hand = kept_lexurgy
 
     return burn_logic.drawCards(agent, room, hand_size or HAND_SIZE, options)
 end
@@ -191,6 +216,8 @@ function burn_logic.resolveHpCollapse(agent, room, options)
     if draw_reason == "eliminated" then
         return false, draw_reason
     end
+
+    equip_logic.drawFromEquippedLexDecks(agent)
 
     local hp = getHpRuntime(agent)
 
