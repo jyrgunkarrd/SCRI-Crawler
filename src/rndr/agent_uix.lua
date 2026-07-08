@@ -7,6 +7,7 @@ local burn_palette = require("data.burn_palette")
 local block_logic = require("src.sys.block_logic")
 local XP_levels = require("src.sys.XP_levels")
 local sfx_logic = require("src.sys.sfx_logic")
+local equip_logic = require("src.sys.equip_logic")
 
 local agent_uix = {}
 
@@ -42,6 +43,9 @@ local OUTLINE_COLOR = { 0.02, 0.018, 0.015, 1 }
 local MODAL_BACKDROP_COLOR = { 0, 0, 0, 0.80 }
 local MODAL_FILL_COLOR = { 0, 0, 0, 0.94 }
 local MODAL_BORDER_COLOR = { 1, 1, 1, 1 }
+local EQUIP_VALID_COLOR = { 1, 0.8275, 0.3529, 1 }
+local EQUIP_GHOST_VALID_COLOR = { 0.4078, 0.6824, 0.5804, 1 }
+local EQUIP_GHOST_INVALID_COLOR = { 1, 0, 0.2863, 1 }
 local FATE_ROW_COLOR = { 0.075, 0.07, 0.062, 1 }
 local FATE_ROW_BORDER_COLOR = { 0.22, 0.2, 0.17, 1 }
 local FATE_POS_COLOR = { 0.9765, 0.6314, 0, 1 }
@@ -99,6 +103,8 @@ local DECK_BUTTON_ICON_PAD = 14
 local DECK_ICON_PATH = "assets/images/icons/deck.webp"
 local full_images = {}
 local missing_full_images = {}
+local equip_images = {}
+local missing_equip_images = {}
 local deck_icon = nil
 local missing_deck_icon = false
 local fate_font
@@ -106,6 +112,7 @@ local burn_clock_font
 local block_icon_font
 local modal_unit = nil
 local modal_kind = nil
+local equip_drag = nil
 local BLOCK_GLYPH = "\239\143\173"
 local BLOCK_COLOR = { 0.7412, 0.6824, 0.7176, 1 }
 local STAT_COLORS = {
@@ -227,6 +234,37 @@ local function getDeckIcon()
     return deck_icon
 end
 
+local function getEquipImage(item)
+    if not item or not item.image_path then
+        return nil
+    end
+
+    if equip_images[item.image_path] then
+        return equip_images[item.image_path]
+    end
+
+    if missing_equip_images[item.image_path] then
+        return nil
+    end
+
+    if not love.filesystem.getInfo(item.image_path, "file") then
+        missing_equip_images[item.image_path] = true
+        return nil
+    end
+
+    local ok, image = pcall(image_loader.newImage, item.image_path)
+
+    if not ok then
+        print("Unable to load equipment image '" .. item.image_path .. "': " .. tostring(image))
+        missing_equip_images[item.image_path] = true
+        return nil
+    end
+
+    equip_images[item.image_path] = image
+
+    return image
+end
+
 local function getBaseStat(unit, stat_id)
     for _, stat in ipairs(unit and unit.stats or {}) do
         if stat[stat_id] ~= nil then
@@ -287,6 +325,89 @@ local function getModalStatPointsRect(layout)
         w = MODAL_STAT_POINTS_W,
         h = MODAL_STAT_POINTS_H,
     }
+end
+
+local function getSlotSectionLayout(layout)
+    local section_h = (layout.slot_h - FATE_SECTION_GAP) / 2
+    local grid_w = SLOT_COLS * SLOT_BOX_W + (SLOT_COLS - 1) * SLOT_GAP_X
+    local grid_h = SLOT_ROWS * (SLOT_LABEL_H + SLOT_BOX_H) + (SLOT_ROWS - 1) * SLOT_GAP_Y
+
+    return {
+        section_h = section_h,
+        x = layout.slot_x,
+        y = layout.slot_y,
+        w = layout.slot_w,
+        h = section_h,
+        grid_x = layout.slot_x + (layout.slot_w - grid_w) / 2,
+        grid_y = layout.slot_y + (section_h - grid_h) / 2,
+    }
+end
+
+local function getEquipSlotRects(layout)
+    local section = getSlotSectionLayout(layout)
+    local rects = {}
+
+    for index = 1, SLOT_COLS * SLOT_ROWS do
+        local col = (index - 1) % SLOT_COLS
+        local row = math.floor((index - 1) / SLOT_COLS)
+        local x = section.grid_x + col * (SLOT_BOX_W + SLOT_GAP_X)
+        local y = section.grid_y + row * (SLOT_LABEL_H + SLOT_BOX_H + SLOT_GAP_Y)
+
+        rects[#rects + 1] = {
+            index = index,
+            label_x = x,
+            label_y = y,
+            x = x,
+            y = y + SLOT_LABEL_H,
+            w = SLOT_BOX_W,
+            h = SLOT_BOX_H,
+        }
+    end
+
+    return rects
+end
+
+local function getInventoryLayout(layout)
+    local section_h = (layout.slot_h - FATE_SECTION_GAP) / 2
+    local lower_section_x = layout.slot_x
+    local lower_section_y = layout.slot_y + section_h + FATE_SECTION_GAP
+    local available_w = layout.slot_w - INVENTORY_PAD * 2
+    local available_h = section_h - INVENTORY_PAD * 2
+    local cell_size = math.floor(math.min(
+        (available_w - (INVENTORY_COLS - 1) * INVENTORY_GAP) / INVENTORY_COLS,
+        (available_h - (INVENTORY_ROWS - 1) * INVENTORY_GAP) / INVENTORY_ROWS
+    ))
+    local grid_w = INVENTORY_COLS * cell_size + (INVENTORY_COLS - 1) * INVENTORY_GAP
+    local grid_h = INVENTORY_ROWS * cell_size + (INVENTORY_ROWS - 1) * INVENTORY_GAP
+
+    return {
+        section_x = lower_section_x,
+        section_y = lower_section_y,
+        section_w = layout.slot_w,
+        section_h = section_h,
+        cell_size = cell_size,
+        x = lower_section_x + (layout.slot_w - grid_w) / 2,
+        y = lower_section_y + (section_h - grid_h) / 2,
+        w = grid_w,
+        h = grid_h,
+    }
+end
+
+local function getInventoryCellAtPoint(layout, x, y)
+    local inventory = getInventoryLayout(layout)
+
+    for row = 1, INVENTORY_ROWS do
+        for col = 1, INVENTORY_COLS do
+            local cell_x = inventory.x + (col - 1) * (inventory.cell_size + INVENTORY_GAP)
+            local cell_y = inventory.y + (row - 1) * (inventory.cell_size + INVENTORY_GAP)
+
+            if pointInRect(x, y, cell_x, cell_y, inventory.cell_size, inventory.cell_size) then
+                return col, row
+            end
+        end
+    end
+
+    return nil, nil
 end
 
 local function getFullImage(unit, kind)
@@ -699,16 +820,168 @@ local function drawModalAgentStatLabels(agent, layout)
     end
 end
 
+local function drawEquipmentItem(item, x, y, w, h, alpha)
+    local image = getEquipImage(item)
+
+    love.graphics.setColor(0.015, 0.014, 0.012, alpha or 1)
+    love.graphics.rectangle("fill", x, y, w, h)
+
+    if image then
+        local scale = math.min(w / image:getWidth(), h / image:getHeight())
+
+        love.graphics.setColor(1, 1, 1, alpha or 1)
+        love.graphics.draw(
+            image,
+            x + w / 2,
+            y + h / 2,
+            0,
+            scale,
+            scale,
+            image:getWidth() / 2,
+            image:getHeight() / 2
+        )
+    else
+        love.graphics.setColor(1, 1, 1, alpha or 1)
+        love.graphics.printf(item and item.id or "", x + 2, y + h / 2 - 8, w - 4, "center")
+    end
+
+    love.graphics.setColor(MODAL_BORDER_COLOR[1], MODAL_BORDER_COLOR[2], MODAL_BORDER_COLOR[3], alpha or 1)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", x, y, w, h)
+    love.graphics.setLineWidth(1)
+end
+
+local function getInventoryItemRect(item, inventory)
+    local col = item.inv_col or 1
+    local row = item.inv_row or 1
+
+    return {
+        x = inventory.x + (col - 1) * (inventory.cell_size + INVENTORY_GAP),
+        y = inventory.y + (row - 1) * (inventory.cell_size + INVENTORY_GAP),
+        w = item.inv_w * inventory.cell_size + (item.inv_w - 1) * INVENTORY_GAP,
+        h = item.inv_h * inventory.cell_size + (item.inv_h - 1) * INVENTORY_GAP,
+    }
+end
+
+local function isDraggedItem(item)
+    return equip_drag and equip_drag.item == item
+end
+
+local function drawEquipmentDragHighlights(agent, layout)
+    if not equip_drag or equip_drag.agent ~= agent then
+        return
+    end
+
+    for _, rect in ipairs(getEquipSlotRects(layout)) do
+        if equip_logic.canPlaceInSlot(agent, equip_drag.item, rect.index) then
+            love.graphics.setColor(EQUIP_VALID_COLOR[1], EQUIP_VALID_COLOR[2], EQUIP_VALID_COLOR[3], 0.18)
+            love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h)
+            love.graphics.setColor(EQUIP_VALID_COLOR)
+            love.graphics.setLineWidth(3)
+            love.graphics.rectangle("line", rect.x + 2, rect.y + 2, rect.w - 4, rect.h - 4)
+            love.graphics.setLineWidth(1)
+        end
+    end
+end
+
+local function drawEquipmentInventoryGhost(agent, layout)
+    if not equip_drag or equip_drag.agent ~= agent then
+        return
+    end
+
+    local mouse_x, mouse_y = love.mouse.getPosition()
+    local col, row = getInventoryCellAtPoint(layout, mouse_x, mouse_y)
+
+    if not col or not row then
+        return
+    end
+
+    local inventory = getInventoryLayout(layout)
+    local item = equip_drag.item
+    local valid = equip_logic.canPlaceInInventory(agent, item, col, row, item)
+    local color = valid and EQUIP_GHOST_VALID_COLOR or EQUIP_GHOST_INVALID_COLOR
+    local rect = {
+        x = inventory.x + (col - 1) * (inventory.cell_size + INVENTORY_GAP),
+        y = inventory.y + (row - 1) * (inventory.cell_size + INVENTORY_GAP),
+        w = item.inv_w * inventory.cell_size + (item.inv_w - 1) * INVENTORY_GAP,
+        h = item.inv_h * inventory.cell_size + (item.inv_h - 1) * INVENTORY_GAP,
+    }
+
+    love.graphics.setColor(color[1], color[2], color[3], 0.24)
+    love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h)
+    love.graphics.setColor(color[1], color[2], color[3], 0.92)
+    love.graphics.setLineWidth(3)
+    love.graphics.rectangle("line", rect.x, rect.y, rect.w, rect.h)
+    love.graphics.setLineWidth(1)
+end
+
+local function drawEquipment(agent, layout)
+    local slots = equip_logic.getSlots(agent)
+    local slot_rects = getEquipSlotRects(layout)
+    local inventory = getInventoryLayout(layout)
+
+    for _, rect in ipairs(slot_rects) do
+        local item = slots[rect.index]
+
+        if item and not isDraggedItem(item) then
+            drawEquipmentItem(item, rect.x + 4, rect.y + 4, rect.w - 8, rect.h - 8, 1)
+        end
+    end
+
+    for _, item in ipairs(equip_logic.getInventory(agent)) do
+        if not isDraggedItem(item) then
+            local rect = getInventoryItemRect(item, inventory)
+            drawEquipmentItem(item, rect.x, rect.y, rect.w, rect.h, 1)
+        end
+    end
+end
+
+local function findEquipmentAtPoint(agent, layout, x, y)
+    local slots = equip_logic.getSlots(agent)
+    local slot_rects = getEquipSlotRects(layout)
+
+    for _, rect in ipairs(slot_rects) do
+        local item = slots[rect.index]
+
+        if item and pointInRect(x, y, rect.x, rect.y, rect.w, rect.h) then
+            return item
+        end
+    end
+
+    local inventory = getInventoryLayout(layout)
+    local items = equip_logic.getInventory(agent)
+
+    for index = #items, 1, -1 do
+        local item = items[index]
+        local rect = getInventoryItemRect(item, inventory)
+
+        if pointInRect(x, y, rect.x, rect.y, rect.w, rect.h) then
+            return item
+        end
+    end
+
+    return nil
+end
+
+local function drawDraggedEquipment()
+    if not equip_drag then
+        return
+    end
+
+    local mouse_x, mouse_y = love.mouse.getPosition()
+    local w = equip_drag.w or SLOT_BOX_W
+    local h = equip_drag.h or SLOT_BOX_H
+
+    drawEquipmentItem(equip_drag.item, mouse_x - w / 2, mouse_y - h / 2, w, h, 0.88)
+end
+
 local function drawSlotWindow(agent, layout)
     local section_h = (layout.slot_h - FATE_SECTION_GAP) / 2
     local slot_section_x = layout.slot_x
     local slot_section_y = layout.slot_y
     local lower_section_x = layout.slot_x
     local lower_section_y = layout.slot_y + section_h + FATE_SECTION_GAP
-    local grid_w = SLOT_COLS * SLOT_BOX_W + (SLOT_COLS - 1) * SLOT_GAP_X
-    local grid_h = SLOT_ROWS * (SLOT_LABEL_H + SLOT_BOX_H) + (SLOT_ROWS - 1) * SLOT_GAP_Y
-    local start_x = slot_section_x + (layout.slot_w - grid_w) / 2
-    local start_y = slot_section_y + (section_h - grid_h) / 2
+    local slot_rects = getEquipSlotRects(layout)
     local previous_font = love.graphics.getFont()
 
     if not fate_font then
@@ -726,49 +999,40 @@ local function drawSlotWindow(agent, layout)
 
     drawModalAgentStatLabels(agent, layout)
 
-    for index = 1, SLOT_COLS * SLOT_ROWS do
-        local slot_name = (agent.slots and agent.slots[index]) or ""
-        local col = (index - 1) % SLOT_COLS
-        local row = math.floor((index - 1) / SLOT_COLS)
-        local x = start_x + col * (SLOT_BOX_W + SLOT_GAP_X)
-        local y = start_y + row * (SLOT_LABEL_H + SLOT_BOX_H + SLOT_GAP_Y)
+    for _, rect in ipairs(slot_rects) do
+        local slot_name = (agent.slots and agent.slots[rect.index]) or ""
 
         love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.rectangle("fill", x, y, SLOT_BOX_W, SLOT_LABEL_H)
-        love.graphics.rectangle("line", x, y, SLOT_BOX_W, SLOT_LABEL_H)
+        love.graphics.rectangle("fill", rect.label_x, rect.label_y, SLOT_BOX_W, SLOT_LABEL_H)
+        love.graphics.rectangle("line", rect.label_x, rect.label_y, SLOT_BOX_W, SLOT_LABEL_H)
         love.graphics.setColor(0, 0, 0, 1)
-        love.graphics.printf(slot_name, x + 2, y + 6, SLOT_BOX_W - 4, "center")
+        love.graphics.printf(slot_name, rect.label_x + 2, rect.label_y + 6, SLOT_BOX_W - 4, "center")
 
         love.graphics.setColor(0.04, 0.038, 0.034, 1)
-        love.graphics.rectangle("fill", x, y + SLOT_LABEL_H, SLOT_BOX_W, SLOT_BOX_H)
+        love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h)
         love.graphics.setColor(MODAL_BORDER_COLOR)
-        love.graphics.rectangle("line", x, y + SLOT_LABEL_H, SLOT_BOX_W, SLOT_BOX_H)
+        love.graphics.rectangle("line", rect.x, rect.y, rect.w, rect.h)
     end
 
     love.graphics.setFont(previous_font)
 
-    local available_w = layout.slot_w - INVENTORY_PAD * 2
-    local available_h = section_h - INVENTORY_PAD * 2
-    local cell_size = math.floor(math.min(
-        (available_w - (INVENTORY_COLS - 1) * INVENTORY_GAP) / INVENTORY_COLS,
-        (available_h - (INVENTORY_ROWS - 1) * INVENTORY_GAP) / INVENTORY_ROWS
-    ))
-    local grid_w = INVENTORY_COLS * cell_size + (INVENTORY_COLS - 1) * INVENTORY_GAP
-    local grid_h = INVENTORY_ROWS * cell_size + (INVENTORY_ROWS - 1) * INVENTORY_GAP
-    local inventory_x = lower_section_x + (layout.slot_w - grid_w) / 2
-    local inventory_y = lower_section_y + (section_h - grid_h) / 2
+    local inventory = getInventoryLayout(layout)
 
     for row = 0, INVENTORY_ROWS - 1 do
         for col = 0, INVENTORY_COLS - 1 do
-            local x = inventory_x + col * (cell_size + INVENTORY_GAP)
-            local y = inventory_y + row * (cell_size + INVENTORY_GAP)
+            local x = inventory.x + col * (inventory.cell_size + INVENTORY_GAP)
+            local y = inventory.y + row * (inventory.cell_size + INVENTORY_GAP)
 
             love.graphics.setColor(0.04, 0.038, 0.034, 1)
-            love.graphics.rectangle("fill", x, y, cell_size, cell_size)
+            love.graphics.rectangle("fill", x, y, inventory.cell_size, inventory.cell_size)
             love.graphics.setColor(MODAL_BORDER_COLOR)
-            love.graphics.rectangle("line", x, y, cell_size, cell_size)
+            love.graphics.rectangle("line", x, y, inventory.cell_size, inventory.cell_size)
         end
     end
+
+    drawEquipmentDragHighlights(agent, layout)
+    drawEquipmentInventoryGhost(agent, layout)
+    drawEquipment(agent, layout)
 end
 
 local function drawFateRows(entries, section_x, section_y, section_w, section_h)
@@ -847,6 +1111,7 @@ local function drawFateModal()
     end
 
     drawFateDeckWindow(modal_unit, layout)
+    drawDraggedEquipment()
 
     love.graphics.setColor(1, 1, 1, 1)
 end
@@ -926,18 +1191,31 @@ function agent_uix.mousepressed(x, y, button)
         local in_deck_button = deck_button and pointInRect(x, y, deck_button.x, deck_button.y, deck_button.w, deck_button.h)
         local stat_button = nil
         local in_stat_controls = false
+        local equipment_item = nil
 
         if modal_kind ~= "enemy" and modal_kind ~= "hazard" and layout.slot_x then
             local label_rect = pointInAnyRect(x, y, getModalStatLabelRects(layout))
             local points_rect = XP_levels.getStatPoints(modal_unit) > 0 and getModalStatPointsRect(layout) or nil
 
             stat_button = XP_levels.getStatPoints(modal_unit) > 0 and pointInAnyRect(x, y, getModalStatButtonRects(layout)) or nil
+            equipment_item = findEquipmentAtPoint(modal_unit, layout, x, y)
             in_stat_controls = label_rect ~= nil
                 or stat_button ~= nil
                 or (points_rect and pointInRect(x, y, points_rect.x, points_rect.y, points_rect.w, points_rect.h))
         end
 
-        if stat_button then
+        if equipment_item and equip_logic.canDragItem(equipment_item) then
+            local inventory = getInventoryLayout(layout)
+            local rect = equipment_item.location == "inventory" and getInventoryItemRect(equipment_item, inventory)
+                or pointInAnyRect(x, y, getEquipSlotRects(layout))
+
+            equip_drag = {
+                agent = modal_unit,
+                item = equipment_item,
+                w = rect and rect.w or SLOT_BOX_W,
+                h = rect and rect.h or SLOT_BOX_H,
+            }
+        elseif stat_button then
             if XP_levels.spendStatPoint(modal_unit, stat_button.stat_id) then
                 sfx_logic.playNamed("token_select")
             end
@@ -967,7 +1245,43 @@ function agent_uix.mousepressed(x, y, button)
     return false
 end
 
+function agent_uix.mousereleased(x, y, button)
+    if button ~= 1 or not equip_drag then
+        return false
+    end
+
+    local drag = equip_drag
+    equip_drag = nil
+
+    if not modal_unit or modal_unit ~= drag.agent or modal_kind == "enemy" or modal_kind == "hazard" then
+        return true
+    end
+
+    local layout = getModalLayout()
+
+    for _, rect in ipairs(getEquipSlotRects(layout)) do
+        if pointInRect(x, y, rect.x, rect.y, rect.w, rect.h) then
+            if equip_logic.moveToSlot(drag.agent, drag.item, rect.index) then
+                sfx_logic.playNamed("equip")
+            end
+            return true
+        end
+    end
+
+    local col, row = getInventoryCellAtPoint(layout, x, y)
+
+    if col and row then
+        if equip_logic.moveToInventory(drag.agent, drag.item, col, row) then
+            sfx_logic.playNamed("cardhover")
+        end
+    end
+
+    return true
+end
+
 function agent_uix.closeModal()
+    equip_drag = nil
+
     if action_deck_viewer.close() then
         return true
     end

@@ -12,7 +12,22 @@ local tomes = {
             "Lex",
 
         },
-        inv_size = 4,
+        inv_size = {H = 2, W = 2},
+        stat_req = {
+
+            {lex = 5},
+
+        },
+        lock_in = true, 
+        lex_deck = {
+
+            "INCN",
+            "INCN",
+            "INCN",
+            "INCN",
+            "INCN",
+
+        },
 
     },
 

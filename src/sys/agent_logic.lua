@@ -8,6 +8,7 @@ local block_logic = require("src.sys.block_logic")
 local door_room_logic = require("src.sys.door_room_logic")
 local enemy_ai = require("src.sys.enemy_ai")
 local XP_levels = require("src.sys.XP_levels")
+local equip_logic = require("src.sys.equip_logic")
 
 local agent_logic = {
     selected_tile = nil,
@@ -674,6 +675,7 @@ function agent_logic.ensureRuntimeStats(agent)
     block_logic.clearBlock(agent)
     fate_logic.initializeFateDeck(agent)
     XP_levels.initializeAgent(agent)
+    equip_logic.initializeAgent(agent)
 end
 
 function agent_logic.refreshAgents(room)

@@ -497,6 +497,10 @@ end
 function love.mousereleased(x, y, button)
     local camera_x, camera_y = camera.getOffset()
 
+    if agent_uix.mousereleased(x, y, button) then
+        return
+    end
+
     if phase_rules.isMissionPhase() and deck_hand_vis.mousereleased(room, x, y, button, camera_x, camera_y) then
         return
     elseif button == 1 and card_play.isDragging() then

@@ -6,7 +6,7 @@ return
 
     "MAM",
     "B6",
-    "TMW",
+    "WICK",
 
     },
 }
