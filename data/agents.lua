@@ -43,6 +43,13 @@ local agents = {
         
         },
         shout_select = "As a river bends.",
+        skill_trees = {
+
+            tab1ID = "MAM_TREE_K-J",
+            tab2ID = "MAM_TREE_KIM",
+            tab3ID = "MAM_TREE_T-Y",
+
+        },
 
     },
 

@@ -17,7 +17,15 @@ local hazards = {
             { act1 = "SENTRYatk", weight = 1, dmg = 0 }
 
         },
+        level_scale = {
+            stats = {
+                atk = true,
+            },
+        },
         fate = "BSCSTACK",
+        lv = 0,
+        hpgrowth = 2,
+        bpgrowth = 1,
         hazard = true,
         xpreward = 1,
 

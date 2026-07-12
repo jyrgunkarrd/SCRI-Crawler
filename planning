@@ -89,8 +89,134 @@ Instead of skill trees, I think we should build towards the Lexurgy system next.
 
 
 
+We have corpses, lexurgy mechanics and the framework for equipment.
+
+...we need skill trees now 
 
 
 
+What are Mammoth's Methods? 
+
+ - Kanabō-jutsu 
+
+   [1 x4] Part Ways (AoE attack, shove)     [2 x4] Splinter (Ok attack, Auto-Crits on doors or Hazards)     [3 x4] Man-Breaker (Devastating single target attack; Burn 1 slot only)
+   [4 x4] Toss Aside (Free shove)           [5 x4] Bitter Wind (Ok attack, next Attack played is free)      [6 X4] Hot Iron (More damage while character is at low Burn level)
+   [7 x4] Warpath (Move, shove, disorient   [8 x4] Move, next defend is free and grants Barbs)              [9 x4] Long Journey (Move, shuffle cards back into deck)
+   [10 x4] Brutal Attack (Wounds)                                                                           [11 x4] Masterful Attack (Draw a Defend)
+   
+                                            [1 X2] Cursed Technique (Gain 2x Curse tokens; remain at Burn 1, but going to 0 HP is death and every cycle removes a curse token. At 0 Curse tokens, die.
+   [1x Capstone] Sweep Them Away            [1x Capstone] Mirror Breaker (All Attacks auto-crit)            [1x Capstone]  A Gift From Hell (Draw attacks)
+                (Attacks Stun and are Aoe)     
+
+                                            [1x Method Capstone] The Eastern Ronin (Once per mission, upon reaching 0 HP, regain full HP and gain a curse token.
+                                                                                                                                
+                                            When a Curse token is spent or gained, go full bananas mode. 
+
+ - Kimon
+
+   [1 x4] Ready For Rain                    [2 x4] Relish the Sun                                           [3 x4] Fresh Meat
+          (Move, play a Defend from deck)   (Move, gain 1 temp AP if undamaged at end of round)             (Move, eat a corpse to heal)
+   [4 x4] Hell And High Water               [5 x4] Cherry Blossoms                                          [6 x4] By Their Own Petard
+          (Move, Thorns, Unstoppable,       (Move, auto-crit if undamaged at end of round)                  (Move, if through a trap it damages an enemy instead)
+          Taunt)
+   [7 x4] Biting Frost, Deep Hunger         [8 x4] Songs by the River                                       [9 x4] The Avalanche
+          (Block, eat a corpse to heal      (Block, AoE Inspiration if undamaged at end of round)           (Block, next attack this round gains Slam)
+           and gain Toughness)
+   [10 x4] Muddy Slopes                                                                                     [11 x4] Through The Gate
+           (Move, Taunt, Ferocious)                                                                         (Move, damage a door, if door is destroyed move again and next attack this round is free)
+                                            [1 x2] Finding Home (At the beginning of each turn, play
+                                            a random Move card from your deck, discounted)
+
+    [1x Capstone] Bitter Goodbyes           [1x Capstone] Here to Stay                                      [1x Capstone] Seeking The Journey                                                                
+    (At the end of every move,              (At the end of every move, play a free random defend from       (At the end of every move, shove an enemy and gain Tough)
+    play a free random attack               the deck). 
+    from the deck)
+
+                                            [1x Method Capstone] Well Traveled 
+                                            (At the end of every move, gain Inspired)
+
+ - Ten-yomi
+
+[1 x4] A Wind That Brings                  [2 x4] Heavenly Fire                                            [3 x4] Downpour              
+(Pull at Range)                             (Attack, electrical tag)                                        (AoE Disorient)
+[4 x4] A Wind That Keeps                   [5 x4] The Heavens Within                                       [6 x4] Near Thunder
+(Cold damage, far shove)                    (Electrical attack, Restrain)                                   (AoE Demoralize)
+[7 x4] A Wind That Bends                   [8 x4] Fair Omens                                               [9 x4] Early Frost
+(Shove, Immobilize enemies                  (Electrical attack, AoE Inspiration)                            (AoE Immobilize)
+shoved through)
+[10 x4] A Wind That Breaks                                                                                 [11 x4] Deep Fog
+(Shove, Cold damage all enemies                                                                             (AoE Invisibility)
+shoved through)
+                                            [1 x2] A Gift From Heaven (Draw 3)
+
+[1x Capstone] Approaching Storms            [1x Capstone] Heaven's Wrath                                   [1x Capstone] An Angry Sea
+(Play 1 of 3 randomly selected wind cards   (Enemies are vulnerable to electrical attacks)                  (0-2 Enemies are stunned at the beginning
+from the deck for free)                                                                                     of every round) 
+
+                                            [1x Method Capstone] The Tempest
+                                            (Manifest 2 Storm cards at the beginning of each round)
+
+
+
+Okay, for equipment: 
+
+There should be 3 types of inventory item - Rumors, Luggage and Consumables.
+
+Consumables simply provide a number of consumable things (like heals and Lex replenishment) for the course of a mission.
+
+Rumors unlock an Agent's equipment and new Agents. Each new equipment unlock should be a binary choice, and each Agent should have a finite number of rumors to generate equipment from. Agents should end-up with enough gear to cover all their slots plus a bit extra for build variety / mission specialization. Agent unlocks should not be binary.
+
+There should be some hidden rumors for Agents to find.
+
+Luggage generates the game's currency(s) to spend between missions.
+
+All slot items simply work via the XP system - they gain XP with the Agent carrying them, converting it into their own special resource (Loot and Intelligence), and sometimes gain large quantities of their own resource as a bonus. 
+
+Each Agent should have 10 Rumours, and each rumour should have 2 equipment unlocks and an Agent unlock (until we run out of Agents).
+
+That'll provide 20 pieces of gear per run; plenty to play around with builds. There should probably be 2 gear sets, with 4 pieces to each. 
+
+Agents should start the game with enough equipment to provide them with interesting options, but also a bunch of discoverable equipment hidden on missions. The split should perhaps be 50/50 ? The hidden stuff should just be cool. 
+
+
+
+
+Okay. Core gameplay loop is a linear path with optional discoverable side quest chains, alternating between a mission run and going back to a Hamlet-esque hub with upgradebale downtime facilities.
+
+Activities would be divided into 5 Offices within the JACL:
+
+The Captain's Quarters
+
+ - Cash-in Rumors 
+ - Special missions for Nemesis counter-play and to develop Agent relationships
+
+The Situation Room
+
+ - Prime the JACL's special ability
+ - Use Scratch to purchase consumables
+
+The Engineering Bay
+
+ - Use Scratch to improve a booster pack. 
+ - Use Scratch to repair or improve an Office 
+
+The Surgical Floor
+
+ - Compensate for Trauma / Psychosis
+ - Install Augments
+
+The Sheriff's Office
+
+ - Reprimand Agents
+ - Scan for Hunters
+
+
+Scratch is mostly spent on booser packs.
+
+You get booster packs from allied contacts
+
+There's always a risk that an ally is actually Fool's Meat, which wastes scratch and inflict Trauma.
+
+The risk can be circumvented by Scanning, but at the cost of using the Sheriff's Office - which means crime may go unpunished 
 
 

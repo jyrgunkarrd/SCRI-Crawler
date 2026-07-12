@@ -8,13 +8,18 @@ local basic_cards = {
         name = "Attack",
         cost = 1,
         rarity = "common",
-        textbox = "Deal 3 damage to an enemy.\n\nRange 1.",
+        textbox = "Deal {play_func.dmg} damage to an enemy.\n\nRange {play_func.rng}.",
         play_func = {
 
             targ = "enemy",
             dmg = 3,
             rng = 1,
 
+        },
+        level_scale = {
+            play_func = {
+                dmg = true,
+            },
         },
     },
 

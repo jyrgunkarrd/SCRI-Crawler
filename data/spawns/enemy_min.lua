@@ -18,9 +18,16 @@ local enemy_min = {
             { act1 = "FORGatk", weight = 1, dmg = 0 }
 
         },
+        level_scale = {
+            stats = {
+                atk = true,
+            },
+        },
         fate = "BSCSTACK",
+        lv = 0, 
+        hpgrowth = 2,
         enemy = true,
-        xpreward = 1,
+        xpreward = 10000,
 
     },
 

@@ -4,6 +4,7 @@ local XP_levels = {}
 
 local MAX_LEVEL = 50
 local STAT_POINTS_PER_LEVEL = 8
+local SKILL_POINTS_PER_LEVEL = 1
 local LP_PER_LEX = 2
 local ZERO_LP_LEX_UNLOCK = 20
 
@@ -96,6 +97,15 @@ local function addStatPoints(agent, amount)
         + math.max(0, math.floor(tonumber(amount) or 0))
 end
 
+local function addSkillPoints(agent, amount)
+    if not agent then
+        return
+    end
+
+    agent.skill_points = math.max(0, math.floor(tonumber(agent.skill_points) or 0))
+        + math.max(0, math.floor(tonumber(amount) or 0))
+end
+
 local function getStatEntry(agent, stat_id)
     if not agent or not stat_id then
         return nil
@@ -158,12 +168,14 @@ function XP_levels.initializeAgent(agent)
     agent.level = math.min(MAX_LEVEL, math.max(0, math.floor(tonumber(agent.level) or 0)))
     agent.xp = math.max(0, math.floor(tonumber(agent.xp) or 0))
     agent.stat_points = math.max(0, math.floor(tonumber(agent.stat_points) or 0))
+    agent.skill_points = math.max(0, math.floor(tonumber(agent.skill_points) or 0))
 
     while agent.level < MAX_LEVEL and agent.xp >= XP_levels.xpToNext(agent.level) do
         agent.xp = agent.xp - XP_levels.xpToNext(agent.level)
         agent.level = agent.level + 1
         applyHpGrowth(agent)
         addStatPoints(agent, STAT_POINTS_PER_LEVEL)
+        addSkillPoints(agent, SKILL_POINTS_PER_LEVEL)
     end
 
     if agent.level >= MAX_LEVEL then
@@ -200,6 +212,24 @@ function XP_levels.getStatPoints(agent)
     XP_levels.initializeAgent(agent)
 
     return math.max(0, math.floor(tonumber(agent and agent.stat_points) or 0))
+end
+
+function XP_levels.getSkillPoints(agent)
+    XP_levels.initializeAgent(agent)
+
+    return math.max(0, math.floor(tonumber(agent and agent.skill_points) or 0))
+end
+
+function XP_levels.spendSkillPoint(agent)
+    XP_levels.initializeAgent(agent)
+
+    if XP_levels.getSkillPoints(agent) <= 0 then
+        return false
+    end
+
+    agent.skill_points = XP_levels.getSkillPoints(agent) - 1
+
+    return true
 end
 
 function XP_levels.spendStatPoint(agent, stat_id)
@@ -256,6 +286,7 @@ function XP_levels.addXp(agent, amount)
             agent.xp = 0
             applyHpGrowth(agent)
             addStatPoints(agent, STAT_POINTS_PER_LEVEL)
+            addSkillPoints(agent, SKILL_POINTS_PER_LEVEL)
             levels_gained = levels_gained + 1
         else
             agent.xp = agent.xp + xp

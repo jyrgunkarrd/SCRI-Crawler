@@ -94,7 +94,7 @@ local function getStatValue(agent, stat_name)
 
     for _, stat in ipairs(agent.stats) do
         if stat[stat_name] ~= nil then
-            return stat[stat_name]
+            return fate_logic.getScaledStatValue(agent, stat_name, stat[stat_name])
         end
     end
 

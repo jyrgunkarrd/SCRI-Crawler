@@ -6,6 +6,7 @@ local action_deck_viewer = require("src.rndr.action_deck_viewer")
 local burn_palette = require("data.burn_palette")
 local block_logic = require("src.sys.block_logic")
 local XP_levels = require("src.sys.XP_levels")
+local fate_logic = require("src.sys.fate_logic")
 local sfx_logic = require("src.sys.sfx_logic")
 local equip_logic = require("src.sys.equip_logic")
 local card_play = require("src.sys.card_play")
@@ -99,10 +100,17 @@ local XP_GAUGE_H = 28
 local XP_GAUGE_OUTLINE_W = 3
 local LEVEL_BADGE_SIZE = 38
 local LEVEL_BADGE_OUTLINE_W = 3
+local LEVEL_BADGE_PULSE_SPEED = 3.4
+local LEVEL_BADGE_PULSE_SCALE = 0.08
 local DECK_BUTTON_SIZE = 74
 local DECK_BUTTON_GAP = 16
 local DECK_BUTTON_ICON_PAD = 14
+local TREE_BUTTON_BRACKET_PAD = 6
+local TREE_BUTTON_BRACKET_LEN = 18
+local TREE_BUTTON_BRACKET_PULSE_SPEED = 3.4
+local TREE_BUTTON_BRACKET_PULSE_SCALE = 0.08
 local DECK_ICON_PATH = "assets/images/icons/deck.webp"
+local TREE_ICON_PATH = "assets/images/icons/tree.webp"
 local EQUIP_PREVIEW_PAD = 18
 local EQUIP_PREVIEW_IMAGE_SIZE = 150
 local EQUIP_PREVIEW_THUMB_W = 45
@@ -117,6 +125,8 @@ local equip_images = {}
 local missing_equip_images = {}
 local deck_icon = nil
 local missing_deck_icon = false
+local tree_icon = nil
+local missing_tree_icon = false
 local fate_font
 local burn_clock_font
 local block_icon_font
@@ -246,6 +256,33 @@ local function getDeckIcon()
     return deck_icon
 end
 
+local function getTreeIcon()
+    if tree_icon then
+        return tree_icon
+    end
+
+    if missing_tree_icon then
+        return nil
+    end
+
+    if not love.filesystem.getInfo(TREE_ICON_PATH, "file") then
+        missing_tree_icon = true
+        return nil
+    end
+
+    local ok, image = pcall(image_loader.newImage, TREE_ICON_PATH)
+
+    if not ok then
+        print("Unable to load tree icon '" .. TREE_ICON_PATH .. "': " .. tostring(image))
+        missing_tree_icon = true
+        return nil
+    end
+
+    tree_icon = image
+
+    return tree_icon
+end
+
 local function getEquipImage(item)
     if not item or not item.image_path then
         return nil
@@ -280,7 +317,7 @@ end
 local function getBaseStat(unit, stat_id)
     for _, stat in ipairs(unit and unit.stats or {}) do
         if stat[stat_id] ~= nil then
-            return math.floor(tonumber(stat[stat_id]) or 0)
+            return math.floor(fate_logic.getScaledStatValue(unit, stat_id, stat[stat_id]))
         end
     end
 
@@ -545,17 +582,34 @@ local function drawAgentLevelBadge(agent)
     local font = love.graphics.getFont()
     local x = PORTRAIT_BOX_X
     local y = PORTRAIT_BOX_Y
+    local has_unspent_points = XP_levels.getStatPoints(agent) > 0 or XP_levels.getSkillPoints(agent) > 0
+    local scale = 1
 
-    love.graphics.setColor(0, 0, 0, 1)
-    love.graphics.rectangle("fill", x, y, LEVEL_BADGE_SIZE, LEVEL_BADGE_SIZE)
-    love.graphics.setColor(XP_COLOR)
-    love.graphics.setLineWidth(LEVEL_BADGE_OUTLINE_W)
-    love.graphics.rectangle("line", x, y, LEVEL_BADGE_SIZE, LEVEL_BADGE_SIZE)
-    love.graphics.setLineWidth(1)
+    if has_unspent_points then
+        scale = 1 + math.sin(love.timer.getTime() * LEVEL_BADGE_PULSE_SPEED) * LEVEL_BADGE_PULSE_SCALE
+    end
+
+    local size = LEVEL_BADGE_SIZE * scale
+    local draw_x = x + (LEVEL_BADGE_SIZE - size) / 2
+    local draw_y = y + (LEVEL_BADGE_SIZE - size) / 2
+
+    if has_unspent_points then
+        love.graphics.setColor(XP_COLOR)
+        love.graphics.rectangle("fill", draw_x, draw_y, size, size)
+        love.graphics.setColor(0, 0, 0, 1)
+    else
+        love.graphics.setColor(0, 0, 0, 1)
+        love.graphics.rectangle("fill", draw_x, draw_y, size, size)
+        love.graphics.setColor(XP_COLOR)
+        love.graphics.setLineWidth(LEVEL_BADGE_OUTLINE_W)
+        love.graphics.rectangle("line", draw_x, draw_y, size, size)
+        love.graphics.setLineWidth(1)
+    end
+
     love.graphics.print(
         level_text,
-        x + (LEVEL_BADGE_SIZE - font:getWidth(level_text)) / 2,
-        y + (LEVEL_BADGE_SIZE - font:getHeight()) / 2
+        draw_x + (size - font:getWidth(level_text)) / 2,
+        draw_y + (size - font:getHeight()) / 2
     )
 end
 
@@ -763,10 +817,17 @@ local function getDeckButtonRect(layout)
     }
 end
 
-local function drawDeckButton(layout)
-    local rect = getDeckButtonRect(layout)
-    local icon = getDeckIcon()
+local function getTreeButtonRect(layout)
+    local deck_rect = getDeckButtonRect(layout)
+    return {
+        x = deck_rect.x,
+        y = deck_rect.y - DECK_BUTTON_GAP - DECK_BUTTON_SIZE,
+        w = DECK_BUTTON_SIZE,
+        h = DECK_BUTTON_SIZE,
+    }
+end
 
+local function drawIconButton(rect, icon)
     love.graphics.setColor(MODAL_FILL_COLOR)
     love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h)
     love.graphics.setColor(MODAL_BORDER_COLOR)
@@ -792,6 +853,43 @@ local function drawDeckButton(layout)
         icon:getWidth() / 2,
         icon:getHeight() / 2
     )
+end
+
+local function drawDeckButton(layout)
+    drawIconButton(getDeckButtonRect(layout), getDeckIcon())
+end
+
+local function drawButtonBracketPulse(rect)
+    local pulse = 1 + math.sin(love.timer.getTime() * TREE_BUTTON_BRACKET_PULSE_SPEED) * TREE_BUTTON_BRACKET_PULSE_SCALE
+    local base_size = math.max(rect.w, rect.h) + TREE_BUTTON_BRACKET_PAD * 2
+    local size = base_size * pulse
+    local x = rect.x + rect.w / 2 - size / 2
+    local y = rect.y + rect.h / 2 - size / 2
+    local right = x + size
+    local bottom = y + size
+    local len = TREE_BUTTON_BRACKET_LEN
+
+    love.graphics.setColor(XP_COLOR)
+    love.graphics.setLineWidth(3)
+    love.graphics.line(x, y, x + len, y)
+    love.graphics.line(x, y, x, y + len)
+    love.graphics.line(right, y, right - len, y)
+    love.graphics.line(right, y, right, y + len)
+    love.graphics.line(x, bottom, x + len, bottom)
+    love.graphics.line(x, bottom, x, bottom - len)
+    love.graphics.line(right, bottom, right - len, bottom)
+    love.graphics.line(right, bottom, right, bottom - len)
+    love.graphics.setLineWidth(1)
+end
+
+local function drawTreeButton(layout, agent)
+    local rect = getTreeButtonRect(layout)
+
+    drawIconButton(rect, getTreeIcon())
+
+    if XP_levels.getSkillPoints(agent) > 0 then
+        drawButtonBracketPulse(rect)
+    end
 end
 
 local function drawModalAgentStatLabels(agent, layout)
@@ -1042,7 +1140,7 @@ local function drawEquipmentHoverPreview(item, layout)
     love.graphics.setFont(previous_font)
 end
 
-local function drawEquipmentLexCardPreview(card, layout)
+local function drawEquipmentLexCardPreview(card, layout, agent)
     if not card then
         return
     end
@@ -1055,7 +1153,7 @@ local function drawEquipmentLexCardPreview(card, layout)
     local x = right_x + (right_w - card_w * scale) / 2
     local y = layout.image_y + (layout.image_h - card_h * scale) / 2
 
-    card_vis.drawScaledCard(card, x, y, scale)
+    card_vis.drawScaledCard(card, x, y, scale, { unit = agent })
 end
 
 local function getInventoryItemRect(item, inventory)
@@ -1336,13 +1434,17 @@ local function drawFateModal()
     drawFullImageWindow(modal_unit, modal_kind, layout, preview_equipment ~= nil)
 
     if modal_kind ~= "enemy" and modal_kind ~= "hazard" then
+        if modal_unit.skill_trees then
+            drawTreeButton(layout, modal_unit)
+        end
+
         drawDeckButton(layout)
         drawSlotWindow(modal_unit, layout)
         drawEquipmentHoverPreview(preview_equipment, layout)
     end
 
     drawFateDeckWindow(modal_unit, layout)
-    drawEquipmentLexCardPreview(hovered_preview_card, layout)
+    drawEquipmentLexCardPreview(hovered_preview_card, layout, modal_unit)
     drawDraggedEquipment()
 
     love.graphics.setColor(1, 1, 1, 1)
@@ -1439,7 +1541,10 @@ function agent_uix.mousepressed(x, y, button)
         local in_slot = layout.slot_x and pointInRect(x, y, layout.slot_x, layout.slot_y, layout.slot_w, layout.slot_h)
         local in_deck = pointInRect(x, y, layout.deck_x, layout.deck_y, layout.deck_w, layout.deck_h)
         local deck_button = modal_kind ~= "enemy" and modal_kind ~= "hazard" and getDeckButtonRect(layout) or nil
+        local tree_button = modal_kind ~= "enemy" and modal_kind ~= "hazard" and modal_unit.skill_trees
+            and getTreeButtonRect(layout) or nil
         local in_deck_button = deck_button and pointInRect(x, y, deck_button.x, deck_button.y, deck_button.w, deck_button.h)
+        local in_tree_button = tree_button and pointInRect(x, y, tree_button.x, tree_button.y, tree_button.w, tree_button.h)
         local stat_button = nil
         local in_stat_controls = false
         local equipment_item = nil
@@ -1486,7 +1591,11 @@ function agent_uix.mousepressed(x, y, button)
                 sfx_logic.playNamed("token_select")
             end
         elseif in_deck_button then
+            sfx_logic.playNamed("token_select")
             action_deck_viewer.open(modal_unit)
+        elseif in_tree_button then
+            sfx_logic.playNamed("token_select")
+            action_deck_viewer.open(modal_unit, "tree")
         elseif not in_image and not in_slot and not in_deck and not in_stat_controls then
             modal_unit = nil
             modal_kind = nil

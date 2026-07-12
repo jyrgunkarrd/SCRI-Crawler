@@ -72,7 +72,7 @@ local function getStatValue(unit, stat_name)
 
     for _, stat in ipairs(unit.stats) do
         if stat[stat_name] ~= nil then
-            return tonumber(stat[stat_name]) or 0
+            return fate_logic.getScaledStatValue(unit, stat_name, stat[stat_name])
         end
     end
 
@@ -114,16 +114,32 @@ local function getRange(card)
     return math.max(0, math.floor(tonumber(getPlayFunc(card).rng) or 0))
 end
 
-local function getDamage(card)
-    return math.max(0, math.floor(tonumber(getPlayFunc(card).dmg) or 0))
+local function shouldScalePlayValue(card, key)
+    local scale = card and card.level_scale and card.level_scale.play_func
+
+    return scale and scale[key] == true
 end
 
-local function getBypass(card)
-    return math.max(0, math.floor(tonumber(getPlayFunc(card).bp) or 0))
+local function getPlayValue(agent, card, key)
+    local value = tonumber(getPlayFunc(card)[key]) or 0
+
+    if shouldScalePlayValue(card, key) then
+        value = value * fate_logic.getFateScale(agent)
+    end
+
+    return math.max(0, math.floor(value))
 end
 
-local function getBlock(card)
-    return math.max(0, math.floor(tonumber(getPlayFunc(card).blk) or 0))
+local function getDamage(agent, card)
+    return getPlayValue(agent, card, "dmg")
+end
+
+local function getBypass(agent, card)
+    return getPlayValue(agent, card, "bp")
+end
+
+local function getBlock(agent, card)
+    return getPlayValue(agent, card, "blk")
 end
 
 local function hasDamage(card)
@@ -477,7 +493,8 @@ function card_play.release(room, x, y, camera_x, camera_y)
     local target_door = door_room_logic.getDoorAtPoint(room, x, y, camera_x, camera_y)
 
     if target_door and canTargetDoor(drag.card, target_door, drag.source_tile, room) then
-        local value = getPlayFunc(drag.card).targ == "door" and getBypass(drag.card) or getDamage(drag.card)
+        local value = getPlayFunc(drag.card).targ == "door"
+            and getBypass(drag.agent, drag.card) or getDamage(drag.agent, drag.card)
         local fate_card = nil
 
         payCardCost(drag.agent, drag.card)
@@ -511,13 +528,14 @@ function card_play.release(room, x, y, camera_x, camera_y)
     payCardCost(drag.agent, drag.card)
 
     if hasBlock(drag.card) then
-        block_logic.addBlock(target_unit, getBlock(drag.card))
+        block_logic.addBlock(target_unit, getBlock(drag.agent, drag.card))
         removeCardFromHand(drag.agent, drag.hand_index)
         agent_logic.refreshMovementRange(room)
         return true, nil
     end
 
-    local damage = getPlayFunc(drag.card).targ == "door" and getBypass(drag.card) or getDamage(drag.card)
+    local damage = getPlayFunc(drag.card).targ == "door"
+        and getBypass(drag.agent, drag.card) or getDamage(drag.agent, drag.card)
     local fate_card = nil
 
     if hasDamage(drag.card) or (target_kind == "hazard" and hasBypass(drag.card)) then

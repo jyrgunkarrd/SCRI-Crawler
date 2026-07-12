@@ -21,11 +21,25 @@ local function getStatValue(unit, stat_name)
 
     for _, stat in ipairs(unit.stats) do
         if stat[stat_name] ~= nil then
-            return tonumber(stat[stat_name]) or 0
+            return fate_logic.getScaledStatValue(unit, stat_name, stat[stat_name])
         end
     end
 
     return 0
+end
+
+local function getActionValue(unit, action, value_name)
+    local value = tonumber(action and action[value_name]) or 0
+    local unit_action_scale = unit and unit.level_scale and (unit.level_scale.en_act or unit.level_scale.actions)
+    local action_scale = action and action.level_scale
+
+    if (unit_action_scale and unit_action_scale[value_name] == true)
+        or (action_scale and action_scale[value_name] == true)
+    then
+        value = value * fate_logic.getFateScale(unit)
+    end
+
+    return value
 end
 
 local function getRuntimeStat(unit, stat_name)
@@ -323,7 +337,7 @@ local function queueHazardAttack(room, hazard_tile, target, target_kind)
     fate_logic.initializeFateDeck(hazard)
 
     local action = chooseAction(hazard) or {}
-    local base_damage = getStatValue(hazard, "atk") + math.max(0, tonumber(action and action.dmg) or 0)
+    local base_damage = getStatValue(hazard, "atk") + math.max(0, getActionValue(hazard, action, "dmg"))
     local damage, fate_card = fate_logic.applyDamageModifier(hazard, base_damage)
     local damaged, eliminated, burned, blocked, final_damage = applyDamage(room, target, damage)
 
@@ -430,7 +444,7 @@ function enemy_ai.takeNextAction(room)
             end
 
             local action = chooseAction(enemy)
-            local base_damage = getStatValue(enemy, "atk") + math.max(0, tonumber(action and action.dmg) or 0)
+            local base_damage = getStatValue(enemy, "atk") + math.max(0, getActionValue(enemy, action, "dmg"))
             local target = target_tile.agent
             local damage, fate_card = fate_logic.applyDamageModifier(enemy, base_damage)
             local damaged, eliminated, burned, blocked, final_damage = applyDamage(room, target, damage)

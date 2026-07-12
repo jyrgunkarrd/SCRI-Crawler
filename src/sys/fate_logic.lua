@@ -4,6 +4,14 @@ local FATE_STACKS_PATH = "data.fate_stacks"
 local FATE_TILES_PATH = "data.fate_tiles"
 local TOTAL_FATE_UPGRADES = 17
 local MAX_PHYSICAL_INVESTMENT = 400
+local FATE_SCALE_BANDS = {
+    { min = 0, max = 4, scale = 1 },
+    { min = 5, max = 13, scale = 2 },
+    { min = 14, max = 23, scale = 3 },
+    { min = 24, max = 32, scale = 4 },
+    { min = 33, max = 41, scale = 5 },
+    { min = 42, max = 50, scale = 6 },
+}
 
 local function buildLookup(items)
     local lookup = {}
@@ -31,6 +39,57 @@ local function getStatValue(agent, stat_id)
     end
 
     return 0
+end
+
+local function getUnitLevel(unit)
+    if not unit then
+        return 0
+    end
+
+    return math.max(0, math.floor(tonumber(unit.lv ~= nil and unit.lv or unit.level) or 0))
+end
+
+function fate_logic.getFateScale(unit)
+    local level = getUnitLevel(unit)
+
+    for _, band in ipairs(FATE_SCALE_BANDS) do
+        if level >= band.min and level <= band.max then
+            return band.scale
+        end
+    end
+
+    if level > FATE_SCALE_BANDS[#FATE_SCALE_BANDS].max then
+        return FATE_SCALE_BANDS[#FATE_SCALE_BANDS].scale
+    end
+
+    return 1
+end
+
+function fate_logic.shouldScaleStat(unit, stat_id)
+    return unit
+        and unit.level_scale
+        and unit.level_scale.stats
+        and unit.level_scale.stats[stat_id] == true
+end
+
+function fate_logic.getScaledStatValue(unit, stat_id, value)
+    local stat_value = tonumber(value) or 0
+
+    if fate_logic.shouldScaleStat(unit, stat_id) then
+        stat_value = stat_value * fate_logic.getFateScale(unit)
+    end
+
+    if unit and unit.lv ~= nil then
+        local level = getUnitLevel(unit)
+
+        if stat_id == "hp" then
+            stat_value = stat_value + math.max(0, math.floor(tonumber(unit.hpgrowth) or 0)) * level
+        elseif stat_id == "bp" then
+            stat_value = stat_value + math.max(0, math.floor(tonumber(unit.bpgrowth) or 0)) * level
+        end
+    end
+
+    return stat_value
 end
 
 function fate_logic.getFateUpgradeSteps(agent)
@@ -79,7 +138,7 @@ local function shuffle(items)
     end
 end
 
-local function formatCardValue(card)
+local function formatCardValue(card, value)
     if card.fail then
         return "FAIL", "fail"
     end
@@ -89,19 +148,24 @@ local function formatCardValue(card)
     end
 
     if card.neg then
-        return "-" .. tostring(card.value or 0), "neg"
+        return "-" .. tostring(value or 0), "neg"
     end
 
-    return "+" .. tostring(card.value or 0), "pos"
+    return "+" .. tostring(value or 0), "pos"
 end
 
-local function buildRuntimeCard(card, display_order)
-    local value_text, value_kind = formatCardValue(card)
+local function buildRuntimeCard(card, display_order, fate_scale)
+    local scale = math.max(1, math.floor(tonumber(fate_scale) or 1))
+    local base_value = tonumber(card.value) or 0
+    local value = base_value * scale
+    local value_text, value_kind = formatCardValue(card, value)
 
     return {
         id = card.id,
         display_order = display_order,
-        value = tonumber(card.value) or 0,
+        base_value = base_value,
+        value = value,
+        fate_scale = scale,
         value_text = value_text,
         value_kind = value_kind,
         neg = card.neg,
@@ -156,8 +220,12 @@ function fate_logic.initializeFateDeck(agent)
     end
 
     local progression_steps = fate_logic.getFateUpgradeSteps(agent)
+    local fate_scale = fate_logic.getFateScale(agent)
 
-    if agent.fate_runtime and agent.fate_runtime.progression_steps == progression_steps then
+    if agent.fate_runtime
+        and agent.fate_runtime.progression_steps == progression_steps
+        and agent.fate_runtime.fate_scale == fate_scale
+    then
         return
     end
 
@@ -180,7 +248,7 @@ function fate_logic.initializeFateDeck(agent)
 
         if card then
             for _ = 1, getProgressedQuantity(agent, stack_tile, card) do
-                deck[#deck + 1] = buildRuntimeCard(card, index)
+                deck[#deck + 1] = buildRuntimeCard(card, index, fate_scale)
             end
         else
             print("Unknown fate tile id: " .. tostring(stack_tile.slot))
@@ -193,6 +261,7 @@ function fate_logic.initializeFateDeck(agent)
         deck = deck,
         discard = {},
         progression_steps = progression_steps,
+        fate_scale = fate_scale,
     }
 end
 

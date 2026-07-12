@@ -1,4 +1,5 @@
 local image_loader = require("src.assets.image_loader")
+local fate_logic = require("src.sys.fate_logic")
 
 local card_vis = {}
 
@@ -33,6 +34,7 @@ local CARD_IMAGE_EXTENSIONS = { "webp", "png", "jpg", "jpeg" }
 local RARITY_PATH = "data.rarity"
 local DEFAULT_RARITY_CARD_COLOR = { 1, 1, 1, 1 }
 local DEFAULT_RARITY_LABEL_TEXT_COLOR = { 1, 1, 1, 1 }
+local SCALED_VALUE_TEXT_COLOR = { 1, 0.8275, 0.349, 1 }
 
 local card_images = {}
 local missing_images = {}
@@ -281,6 +283,102 @@ local function drawWrappedText(text, x, y, width, height, align, font, vertical_
     return text_y, text_height
 end
 
+local function appendRichToken(lines, token, color, font, width)
+    if token == "" then
+        return
+    end
+
+    local line = lines[#lines]
+    local token_width = font:getWidth(token)
+
+    if line.width > 0 and line.width + token_width > width then
+        lines[#lines + 1] = {
+            fragments = {},
+            width = 0,
+        }
+        line = lines[#lines]
+    end
+
+    line.fragments[#line.fragments + 1] = {
+        text = token,
+        color = color,
+    }
+    line.width = line.width + token_width
+end
+
+local function appendRichTextPart(lines, text, color, font, width)
+    local start = 1
+
+    while start <= #text do
+        local newline_start, newline_end = text:find("\n", start, true)
+        local part = newline_start and text:sub(start, newline_start - 1) or text:sub(start)
+        local cursor = 1
+
+        while cursor <= #part do
+            local space_start, space_end = part:find("%s+", cursor)
+
+            if space_start == cursor then
+                appendRichToken(lines, part:sub(space_start, space_end), color, font, width)
+                cursor = space_end + 1
+            else
+                local next_end = space_start and space_start - 1 or #part
+                appendRichToken(lines, part:sub(cursor, next_end), color, font, width)
+                cursor = next_end + 1
+            end
+        end
+
+        if not newline_start then
+            break
+        end
+
+        lines[#lines + 1] = {
+            fragments = {},
+            width = 0,
+        }
+        start = newline_end + 1
+    end
+end
+
+local function layoutRichText(segments, font, width)
+    local lines = {
+        {
+            fragments = {},
+            width = 0,
+        },
+    }
+
+    for _, segment in ipairs(segments or {}) do
+        appendRichTextPart(lines, segment.text or "", segment.color, font, width)
+    end
+
+    return lines, #lines * font:getHeight()
+end
+
+local function drawRichText(segments, x, y, width, height, font, vertical_align)
+    local previous_font = love.graphics.getFont()
+    font = font or previous_font
+    love.graphics.setFont(font)
+
+    local lines, text_height = layoutRichText(segments, font, width)
+    local cursor_y = vertical_align == "top" and y or y + (height - text_height) / 2
+
+    for _, line in ipairs(lines) do
+        local cursor_x = x
+
+        for _, fragment in ipairs(line.fragments) do
+            love.graphics.setColor(fragment.color or { 1, 1, 1, 1 })
+            love.graphics.print(fragment.text, cursor_x, cursor_y)
+            cursor_x = cursor_x + font:getWidth(fragment.text)
+        end
+
+        cursor_y = cursor_y + font:getHeight()
+    end
+
+    love.graphics.setFont(previous_font)
+
+    return y, text_height
+end
+
 local function drawTags(tags, x, y, width)
     if not tags or #tags == 0 then
         return 0
@@ -336,13 +434,19 @@ local function drawTextBoxContent(tags, text, flavor, x, y, width, height)
     local tag_offset = drawTags(tags, x, y, width)
     local text_y = y + tag_offset
     local text_height_available = height - tag_offset
+    local text_height = 0
 
     if text_height_available <= 0 then
         return
     end
 
     love.graphics.setColor(1, 1, 1, 1)
-    local _, text_height = drawWrappedText(text, x, text_y, width, text_height_available, "left", getBodyFont(), "top")
+
+    if type(text) == "table" then
+        _, text_height = drawRichText(text, x, text_y, width, text_height_available, getBodyFont(), "top")
+    else
+        _, text_height = drawWrappedText(text, x, text_y, width, text_height_available, "left", getBodyFont(), "top")
+    end
 
     if not flavor or flavor == "" then
         return
@@ -355,6 +459,101 @@ local function drawTextBoxContent(tags, text, flavor, x, y, width, height)
         love.graphics.setColor(1, 1, 1, 1)
         drawWrappedText(flavor, x, flavor_y, width, remaining_height, "left", getFlavorFont(), "top")
     end
+end
+
+local function getContextUnit(context)
+    if type(context) ~= "table" then
+        return context
+    end
+
+    return context.unit or context.agent or context.owner
+end
+
+local function getNestedValue(root, path)
+    local value = root
+
+    for segment in tostring(path or ""):gmatch("[^%.]+") do
+        if type(value) ~= "table" then
+            return nil
+        end
+
+        value = value[segment]
+    end
+
+    return value
+end
+
+local function shouldScaleCardPath(card, path)
+    local group, key = tostring(path or ""):match("^([^%.]+)%.(.+)$")
+
+    if not group or not key then
+        return false
+    end
+
+    local scale_group = card and card.level_scale and card.level_scale[group]
+
+    return scale_group and scale_group[key] == true
+end
+
+local function resolveCardToken(card, context, token)
+    local value = getNestedValue(card, token)
+
+    if value == nil then
+        return "{" .. tostring(token) .. "}"
+    end
+
+    if type(value) == "number" and shouldScaleCardPath(card, token) then
+        value = value * fate_logic.getFateScale(getContextUnit(context))
+    end
+
+    if type(value) == "number" then
+        return tostring(math.floor(value))
+    end
+
+    return tostring(value)
+end
+
+local function resolveCardText(card, context, text)
+    return (text or ""):gsub("{([^}]+)}", function(token)
+        return resolveCardToken(card, context, token)
+    end)
+end
+
+local function resolveCardTextSegments(card, context, text)
+    local segments = {}
+    local cursor = 1
+    text = text or ""
+
+    while cursor <= #text do
+        local token_start, token_end, token = text:find("{([^}]+)}", cursor)
+
+        if not token_start then
+            segments[#segments + 1] = {
+                text = text:sub(cursor),
+            }
+            break
+        end
+
+        if token_start > cursor then
+            segments[#segments + 1] = {
+                text = text:sub(cursor, token_start - 1),
+            }
+        end
+
+        segments[#segments + 1] = {
+            text = resolveCardToken(card, context, token),
+            color = SCALED_VALUE_TEXT_COLOR,
+        }
+        cursor = token_end + 1
+    end
+
+    if #segments == 0 then
+        segments[1] = {
+            text = text,
+        }
+    end
+
+    return segments
 end
 
 local function getWrappedTextBounds(text, x, y, width, height, font, vertical_align)
@@ -498,7 +697,7 @@ function card_vis.drawCardImageOnly(card, center_x, center_y, width)
     )
 end
 
-function card_vis.drawCard(card, x, y)
+function card_vis.drawCard(card, x, y, context)
     if not card then
         return
     end
@@ -550,7 +749,7 @@ function card_vis.drawCard(card, x, y)
     love.graphics.setColor(1, 1, 1, 1)
     drawTextBoxContent(
         card.tags or {},
-        card.textbox or "",
+        resolveCardTextSegments(card, context, card.textbox),
         card.flavor,
         content_x + TEXT_BOX_PADDING,
         text_box_y + TEXT_BOX_PADDING,
@@ -565,11 +764,11 @@ function card_vis.drawCard(card, x, y)
     love.graphics.setColor(1, 1, 1, 1)
 end
 
-function card_vis.drawScaledCard(card, x, y, scale)
+function card_vis.drawScaledCard(card, x, y, scale, context)
     love.graphics.push()
     love.graphics.translate(x, y)
     love.graphics.scale(scale, scale)
-    card_vis.drawCard(card, 0, 0)
+    card_vis.drawCard(card, 0, 0, context)
     love.graphics.pop()
 end
 

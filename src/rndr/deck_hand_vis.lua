@@ -198,6 +198,7 @@ end
 
 function deck_hand_vis.drawPlayerHand()
     local layout = getPlayerHandLayout()
+    local agent = agent_logic.getSelectedAgent()
 
     if not layout then
         return
@@ -207,7 +208,7 @@ function deck_hand_vis.drawPlayerHand()
         card_vis.loadCardAssets(card)
 
         if not card_play.isDragging() or index ~= dragging_hand_index then
-            card_vis.drawCard(card, layout.start_x + (index - 1) * layout.spacing, layout.y)
+            card_vis.drawCard(card, layout.start_x + (index - 1) * layout.spacing, layout.y, { unit = agent })
         end
     end
 end
@@ -301,7 +302,8 @@ function deck_hand_vis.drawFocusedCard()
         hovered_card,
         (screen_width - card_width * scale) / 2,
         preview_outer_top + CARD_BACKING_PADDING * scale,
-        scale
+        scale,
+        { unit = agent_logic.getSelectedAgent() }
     )
 end
 
