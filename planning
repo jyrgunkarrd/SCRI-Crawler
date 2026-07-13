@@ -220,3 +220,28 @@ There's always a risk that an ally is actually Fool's Meat, which wastes scratch
 The risk can be circumvented by Scanning, but at the cost of using the Sheriff's Office - which means crime may go unpunished 
 
 
+
+HM. 
+
+So, the story generator in KD:M that works so well involved Settlement Events that are seeded by things that do occur randomly, but the events themselves are deterministic and known ahead of time. The effects are random.
+
+Then on top of that there are events that occur, sometimes with decisions to make, when certain milestones happen.
+
+Then, on top of THAT, there are random events.
+
+
+
+Okay. 
+
+Maybe what we want is a calender where we can seat an equivalent to Story Events that will trigger and resolve sequentially on the day shown in the calendar. We could even break the calendar into seasons? 
+
+...This maybe gets very weird though with a linear campaign that is constantly going forward? Because ideally we would want the seasons to be de-synced from the linear campaign. Maybe the calendar only shows the current season and the coming season ? So there are [X] days in a season, then it's onto the next Season, and the Seasons are always randomized except probably the very first season isn't ? 
+
+
+We're  getting a bit far ahead of ourselves at the moment. Right now we need our Consumables, Rumors and Luggage, so we can set-up the systems for them. Just the basics everyone comes with. 
+
+For that I think we just need a roster of characters? We probably need a modal button that will populate the entire roster of available characters.
+
+We also need the Strike Package screen where a team for a mission is assembled... either the roster or Strike Package modal should allow for character inventories to be opened and populated with available Consumables / Rumors / Luggage. 
+
+

@@ -1451,6 +1451,11 @@ local function drawFateModal()
 end
 
 function agent_uix.draw()
+    if modal_unit then
+        drawFateModal()
+        return
+    end
+
     local unit, kind = agent_logic.getSelectedUnit()
 
     if not unit then
@@ -1518,6 +1523,21 @@ function agent_uix.draw()
     if kind ~= "door" then
         drawFateModal()
     end
+end
+
+function agent_uix.openModal(unit, kind)
+    if not unit then
+        return false
+    end
+
+    modal_unit = unit
+    modal_kind = kind or "agent"
+    pinned_equipment = nil
+    hovered_preview_card_key = nil
+    action_deck_viewer.close()
+    sfx_logic.playNamed("token_select")
+
+    return true
 end
 
 function agent_uix.mousepressed(x, y, button)

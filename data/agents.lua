@@ -92,7 +92,7 @@ local agents = {
     {
 
         id = "SAW",
-        name = "Snow & Miss White",
+        name = "Snow &\nMiss White",
         slots = {
 
             "Head",

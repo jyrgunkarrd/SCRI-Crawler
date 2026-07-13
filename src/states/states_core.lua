@@ -14,6 +14,7 @@ local phase_rules = require("src.sys.phase_rules")
 local sfx_logic = require("src.sys.sfx_logic")
 local enemy_ai = require("src.sys.enemy_ai")
 local door_room_logic = require("src.sys.door_room_logic")
+local jacl_state = require("src.states.jacl_state")
 
 local states_core = {
     states = {},
@@ -485,7 +486,7 @@ function states_core.getCurrent()
 end
 
 function states_core.load(initial_state)
-    states_core.switch(initial_state or "mission")
+    states_core.switch(initial_state or "JACL")
 end
 
 function states_core.update(dt)
@@ -530,6 +531,7 @@ function states_core.wheelmoved(...)
     end
 end
 
+states_core.register("JACL", jacl_state)
 states_core.register("mission", mission)
 
 return states_core
