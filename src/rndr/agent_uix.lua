@@ -132,6 +132,7 @@ local burn_clock_font
 local block_icon_font
 local modal_unit = nil
 local modal_kind = nil
+local modal_offset_y = 0
 local equip_drag = nil
 local pinned_equipment = nil
 local hovered_preview_card_key = nil
@@ -185,7 +186,7 @@ end
 local function getModalLayout()
     local total_w = MODAL_IMAGE_W + MODAL_GAP + MODAL_SLOT_W + MODAL_GAP + MODAL_DECK_W
     local x = (love.graphics.getWidth() - total_w) / 2
-    local y = (love.graphics.getHeight() - MODAL_H) / 2 + (MODAL_TITLE_H + MODAL_TITLE_GAP) / 2
+    local y = (love.graphics.getHeight() - MODAL_H) / 2 + (MODAL_TITLE_H + MODAL_TITLE_GAP) / 2 + modal_offset_y
     local slot_x = x + MODAL_IMAGE_W + MODAL_GAP
 
     return {
@@ -207,7 +208,7 @@ end
 local function getEnemyModalLayout()
     local total_w = MODAL_IMAGE_W + MODAL_GAP + MODAL_DECK_W
     local x = (love.graphics.getWidth() - total_w) / 2
-    local y = (love.graphics.getHeight() - MODAL_H) / 2 + (MODAL_TITLE_H + MODAL_TITLE_GAP) / 2
+    local y = (love.graphics.getHeight() - MODAL_H) / 2 + (MODAL_TITLE_H + MODAL_TITLE_GAP) / 2 + modal_offset_y
 
     return {
         image_x = x,
@@ -751,6 +752,98 @@ local function drawStatValue(label, stat, color, index, pending_cost, stat_y, bl
 
     love.graphics.setColor(color)
     love.graphics.print(value_text, value_x, y)
+end
+
+local function getRuntimeStatSnapshot(unit, stat_id)
+    local stat = unit and unit.runtime_stats and unit.runtime_stats[stat_id]
+
+    if stat then
+        return stat
+    end
+
+    local value = getBaseStat(unit, stat_id)
+
+    return {
+        current = value,
+        maximum = value,
+    }
+end
+
+local function getUnitPanelStats(unit, kind)
+    if kind == "enemy" then
+        return {
+            hp = getRuntimeStatSnapshot(unit, "hp"),
+            atk = getRuntimeStatSnapshot(unit, "atk"),
+            spd = getRuntimeStatSnapshot(unit, "spd"),
+            rng = getRuntimeStatSnapshot(unit, "rng"),
+        }
+    end
+
+    if kind == "hazard" then
+        return {
+            hp = getRuntimeStatSnapshot(unit, "hp"),
+            bp = getRuntimeStatSnapshot(unit, "bp"),
+            atk = getRuntimeStatSnapshot(unit, "atk"),
+            rng = getRuntimeStatSnapshot(unit, "rng"),
+        }
+    end
+
+    return {
+        ap = getRuntimeStatSnapshot(unit, "ap"),
+        hp = getRuntimeStatSnapshot(unit, "hp"),
+        lp = getRuntimeStatSnapshot(unit, "lp"),
+    }
+end
+
+local function drawUnitInfoPanel(unit, kind, stats, pending_ap_cost, pending_lp_cost)
+    if not unit then
+        return
+    end
+
+    kind = kind or "agent"
+    stats = stats or getUnitPanelStats(unit, kind)
+
+    local block_value = block_logic.getBlock(unit)
+    local stat_order = kind == "door" and DOOR_STAT_ORDER
+        or kind == "hazard" and HAZARD_STAT_ORDER
+        or kind == "enemy" and ENEMY_STAT_ORDER
+        or AGENT_STAT_ORDER
+    local fallback_label = kind == "door" and "Door" or kind == "hazard" and "Hazard" or kind == "enemy" and "Enemy" or "Agent"
+    local stat_y = (kind == "enemy" or kind == "hazard") and ENEMY_STAT_Y or STAT_Y
+    local content_x = kind == "door" and PANEL_X + PANEL_PAD or CONTENT_X
+    local content_w = kind == "door" and PANEL_W - PANEL_PAD * 2 or CONTENT_W
+
+    love.graphics.setColor(PANEL_COLOR)
+    love.graphics.rectangle("fill", PANEL_X, PANEL_Y, PANEL_W, PANEL_H)
+
+    if kind ~= "door" then
+        drawPortrait(unit, kind)
+    end
+
+    if kind == "agent" then
+        drawBurnClock(unit)
+        drawAgentLevelBadge(unit)
+        drawAgentXpGauge(unit)
+    end
+
+    love.graphics.setColor(TEXT_COLOR)
+    love.graphics.print(unit.name or unit.id or fallback_label, content_x, CONTENT_Y)
+
+    for index, stat in ipairs(stat_order) do
+        drawStatValue(
+            stat.label,
+            stats[stat.id],
+            STAT_COLORS[stat.id],
+            index,
+            stat.id == "ap" and pending_ap_cost or stat.id == "lp" and pending_lp_cost or nil,
+            stat_y,
+            kind ~= "door" and stat.id == "hp" and block_value or nil,
+            content_x,
+            content_w
+        )
+    end
+
+    love.graphics.setColor(1, 1, 1, 1)
 end
 
 local function getFateValueColor(entry)
@@ -1463,7 +1556,6 @@ function agent_uix.draw()
     end
 
     local stats = agent_logic.getSelectedStats()
-    local block_value = block_logic.getBlock(unit)
     local preview = agent_logic.getMovementPreview()
     local dragged_card = card_play.getDraggedCard()
     local pending_ap_cost = kind == "agent" and preview and preview.cost or nil
@@ -1479,50 +1571,26 @@ function agent_uix.draw()
             pending_ap_cost = card_cost
         end
     end
-    local stat_order = kind == "door" and DOOR_STAT_ORDER
-        or kind == "hazard" and HAZARD_STAT_ORDER
-        or kind == "enemy" and ENEMY_STAT_ORDER
-        or AGENT_STAT_ORDER
-    local fallback_label = kind == "door" and "Door" or kind == "hazard" and "Hazard" or kind == "enemy" and "Enemy" or "Agent"
-    local stat_y = (kind == "enemy" or kind == "hazard") and ENEMY_STAT_Y or STAT_Y
-    local content_x = kind == "door" and PANEL_X + PANEL_PAD or CONTENT_X
-    local content_w = kind == "door" and PANEL_W - PANEL_PAD * 2 or CONTENT_W
 
-    love.graphics.setColor(PANEL_COLOR)
-    love.graphics.rectangle("fill", PANEL_X, PANEL_Y, PANEL_W, PANEL_H)
-
-    if kind ~= "door" then
-        drawPortrait(unit, kind)
-    end
-
-    if kind == "agent" then
-        drawBurnClock(unit)
-        drawAgentLevelBadge(unit)
-        drawAgentXpGauge(unit)
-    end
-
-    love.graphics.setColor(TEXT_COLOR)
-    love.graphics.print(unit.name or unit.id or fallback_label, content_x, CONTENT_Y)
-
-    for index, stat in ipairs(stat_order) do
-        drawStatValue(
-            stat.label,
-            stats[stat.id],
-            STAT_COLORS[stat.id],
-            index,
-            stat.id == "ap" and pending_ap_cost or stat.id == "lp" and pending_lp_cost or nil,
-            stat_y,
-            kind ~= "door" and stat.id == "hp" and block_value or nil,
-            content_x,
-            content_w
-        )
-    end
-
-    love.graphics.setColor(1, 1, 1, 1)
+    drawUnitInfoPanel(unit, kind, stats, pending_ap_cost, pending_lp_cost)
 
     if kind ~= "door" then
         drawFateModal()
     end
+end
+
+function agent_uix.drawOpenModalInfoPanel()
+    if not modal_unit then
+        return false
+    end
+
+    drawUnitInfoPanel(modal_unit, modal_kind or "agent")
+
+    return true
+end
+
+function agent_uix.setModalOffset(y)
+    modal_offset_y = tonumber(y) or 0
 end
 
 function agent_uix.openModal(unit, kind)

@@ -2,6 +2,7 @@ local equip_logic = {}
 
 local EQUIP_DIR = "data/equip"
 local EQUIP_REQUIRE_PREFIX = "data.equip."
+local EQUIP_INDEX_PATH = "data.equip.index"
 local CARD_INDEX_PATH = "data.cards.index"
 local INVENTORY_COLS = 10
 local INVENTORY_ROWS = 4
@@ -174,16 +175,24 @@ function equip_logic.getDefinitions()
         return definition_lookup
     end
 
+    local ok, index = pcall(require, EQUIP_INDEX_PATH)
+
+    if ok and type(index) == "table" and type(index.byId) == "table" then
+        definition_lookup = index.byId
+        return definition_lookup
+    end
+
+    print("Unable to load equipment index: " .. tostring(index))
     definition_lookup = {}
 
     for _, filename in ipairs(getDirectoryItems(EQUIP_DIR)) do
         local module_name = filename:match("^(.*)%.lua$")
 
-        if module_name then
+        if module_name and module_name ~= "index" then
             package.loaded[EQUIP_REQUIRE_PREFIX .. module_name] = nil
-            local ok, definitions = pcall(require, EQUIP_REQUIRE_PREFIX .. module_name)
+            local loaded_ok, definitions = pcall(require, EQUIP_REQUIRE_PREFIX .. module_name)
 
-            if ok then
+            if loaded_ok then
                 for _, definition in ipairs(definitions or {}) do
                     if definition.id then
                         definition_lookup[definition.id] = definition

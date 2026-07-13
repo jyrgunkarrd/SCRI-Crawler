@@ -507,6 +507,12 @@ function states_core.keypressed(...)
     end
 end
 
+function states_core.textinput(...)
+    if states_core.current and states_core.current.textinput then
+        states_core.current:textinput(...)
+    end
+end
+
 function states_core.mousepressed(...)
     if states_core.current and states_core.current.mousepressed then
         states_core.current:mousepressed(...)

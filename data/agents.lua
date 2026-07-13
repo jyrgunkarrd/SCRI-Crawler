@@ -50,6 +50,16 @@ local agents = {
             tab3ID = "MAM_TREE_T-Y",
 
         },
+        start_equip_cache = {
+
+            rumors = {
+
+                "MAM_8",
+                "MAM_SENG",
+
+            },
+
+        },
 
     },
 

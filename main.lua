@@ -114,6 +114,10 @@ function love.keypressed(...)
     states_core.keypressed(...)
 end
 
+function love.textinput(...)
+    states_core.textinput(...)
+end
+
 function love.mousepressed(...)
     states_core.mousepressed(...)
 end

@@ -5,6 +5,7 @@ local dev_roster = require("data.dev_roster")
 local agent_logic = require("src.sys.agent_logic")
 local agent_uix = require("src.rndr.agent_uix")
 local officers = require("src.sys.officers")
+local utf8 = require("utf8")
 
 local jacl_state = {
     name = "JACL",
@@ -15,9 +16,13 @@ local jacl_state = {
     right_officers = {},
     roster_agents = {},
     roster_scroll_x = 0,
+    roster_search_text = "",
+    roster_search_focused = false,
     officer_font = nil,
     jacl_font = nil,
     roster_font = nil,
+    roster_prompt_font = nil,
+    roster_icon_font = nil,
     roster_name_fonts = {},
 }
 
@@ -44,6 +49,13 @@ local ROSTER_Y = 14
 local ROSTER_H = 168
 local ROSTER_PADDING_X = 18
 local ROSTER_TITLE_W = 150
+local ROSTER_TITLE_TOP = 30
+local ROSTER_PROMPT_H = 30
+local ROSTER_PROMPT_BOTTOM_PAD = 16
+local ROSTER_SEARCH_ICON = "\239\128\130"
+local ROSTER_SEARCH_ICON_SIZE = 18
+local ROSTER_SEARCH_ICON_GAP = 8
+local ROSTER_PROMPT_PAD_X = 8
 local ROSTER_ITEM_W = 116
 local ROSTER_GAP = 16
 local ROSTER_PORTRAIT_RADIUS = 54
@@ -56,8 +68,14 @@ local ROSTER_OUTLINE_COLOR = { 1, 1, 1, 0.92 }
 local ROSTER_DIVIDER_COLOR = { 1, 1, 1, 0.28 }
 local ROSTER_TITLE_COLOR = { 1, 1, 1, 1 }
 local ROSTER_NAME_COLOR = { 1, 1, 1, 0.9 }
+local ROSTER_PROMPT_COLOR = { 0.035, 0.033, 0.03, 1 }
+local ROSTER_PROMPT_FOCUSED_COLOR = { 0.07, 0.065, 0.056, 1 }
+local ROSTER_PROMPT_OUTLINE_COLOR = { 1, 1, 1, 0.62 }
+local ROSTER_PROMPT_TEXT_COLOR = { 1, 1, 1, 0.9 }
+local ROSTER_PROMPT_CURSOR_COLOR = { 1, 1, 1, 0.82 }
 local ROSTER_PORTRAIT_OUTLINE_COLOR = { 0.015, 0.012, 0.01, 1 }
 local ROSTER_EMPTY_COLOR = { 1, 1, 1, 0.52 }
+local JACL_MODAL_OFFSET_Y = 58
 
 local roster_portraits = {}
 local missing_roster_portraits = {}
@@ -165,6 +183,11 @@ end
 
 local function getRosterLayout()
     local screen_w = love.graphics.getWidth()
+    local label_x = ROSTER_X + ROSTER_PADDING_X
+    local prompt_y = ROSTER_Y + ROSTER_H - ROSTER_PROMPT_BOTTOM_PAD - ROSTER_PROMPT_H
+    local icon_w = ROSTER_SEARCH_ICON_SIZE
+    local prompt_x = label_x + icon_w + ROSTER_SEARCH_ICON_GAP
+    local prompt_w = ROSTER_TITLE_W - icon_w - ROSTER_SEARCH_ICON_GAP
 
     return {
         x = ROSTER_X,
@@ -175,7 +198,44 @@ local function getRosterLayout()
         content_y = ROSTER_Y + 10,
         content_w = math.max(0, screen_w - ROSTER_X * 2 - ROSTER_PADDING_X * 3 - ROSTER_TITLE_W),
         content_h = ROSTER_H - 20,
+        label_x = label_x,
+        label_y = ROSTER_Y + ROSTER_TITLE_TOP,
+        label_w = ROSTER_TITLE_W,
+        prompt_x = prompt_x,
+        prompt_y = prompt_y,
+        prompt_w = prompt_w,
+        prompt_h = ROSTER_PROMPT_H,
+        icon_x = label_x,
+        icon_y = prompt_y + (ROSTER_PROMPT_H - ROSTER_SEARCH_ICON_SIZE) / 2,
     }
+end
+
+local function normalizeSearchText(text)
+    text = tostring(text or ""):lower()
+
+    return text:match("^%s*(.-)%s*$")
+end
+
+local function getFilteredRosterAgents(state)
+    local query = normalizeSearchText(state.roster_search_text)
+    local roster_agents = state.roster_agents or {}
+
+    if query == "" then
+        return roster_agents
+    end
+
+    local filtered_agents = {}
+
+    for _, agent in ipairs(roster_agents) do
+        local name = tostring(agent.name or ""):lower()
+        local id = tostring(agent.id or ""):lower()
+
+        if name:find(query, 1, true) or id:find(query, 1, true) then
+            filtered_agents[#filtered_agents + 1] = agent
+        end
+    end
+
+    return filtered_agents
 end
 
 local function getRosterContentWidth(agent_count)
@@ -194,7 +254,7 @@ end
 
 local function getRosterAgentAtPoint(state, x, y)
     local layout = getRosterLayout()
-    local roster_agents = state.roster_agents or {}
+    local roster_agents = getFilteredRosterAgents(state)
 
     if not pointInRect(x, y, {
         x = layout.content_x,
@@ -219,6 +279,17 @@ local function getRosterAgentAtPoint(state, x, y)
     end
 
     return roster_agents[index]
+end
+
+local function pointInRosterPrompt(state, x, y)
+    local layout = getRosterLayout()
+
+    return pointInRect(x, y, {
+        x = layout.prompt_x,
+        y = layout.prompt_y,
+        w = layout.prompt_w,
+        h = layout.prompt_h,
+    })
 end
 
 local function getRosterNameFont(state, label, max_w, max_h)
@@ -332,9 +403,50 @@ local function drawOfficerColumn(officer_list, center_x, screen_h, font)
     end
 end
 
+local function drawRosterSearchPrompt(state, layout)
+    local prompt_color = state.roster_search_focused and ROSTER_PROMPT_FOCUSED_COLOR or ROSTER_PROMPT_COLOR
+    local text = state.roster_search_text or ""
+
+    love.graphics.setFont(state.roster_icon_font)
+    love.graphics.setColor(ROSTER_TITLE_COLOR)
+    love.graphics.print(ROSTER_SEARCH_ICON, layout.icon_x, layout.icon_y)
+
+    love.graphics.setColor(prompt_color)
+    love.graphics.rectangle("fill", layout.prompt_x, layout.prompt_y, layout.prompt_w, layout.prompt_h)
+    love.graphics.setColor(ROSTER_PROMPT_OUTLINE_COLOR)
+    love.graphics.rectangle("line", layout.prompt_x, layout.prompt_y, layout.prompt_w, layout.prompt_h)
+
+    love.graphics.setFont(state.roster_prompt_font)
+    love.graphics.setColor(ROSTER_PROMPT_TEXT_COLOR)
+
+    local text_x = layout.prompt_x + ROSTER_PROMPT_PAD_X
+    local text_y = layout.prompt_y + (layout.prompt_h - state.roster_prompt_font:getHeight()) / 2
+    local max_text_w = layout.prompt_w - ROSTER_PROMPT_PAD_X * 2
+    local visible_text = text
+
+    while visible_text ~= "" and state.roster_prompt_font:getWidth(visible_text) > max_text_w do
+        local offset = utf8.offset(visible_text, 2)
+
+        if not offset then
+            visible_text = ""
+        else
+            visible_text = visible_text:sub(offset)
+        end
+    end
+
+    love.graphics.print(visible_text, text_x, text_y)
+
+    if state.roster_search_focused and math.floor(love.timer.getTime() * 2) % 2 == 0 then
+        local cursor_x = text_x + state.roster_prompt_font:getWidth(visible_text)
+
+        love.graphics.setColor(ROSTER_PROMPT_CURSOR_COLOR)
+        love.graphics.line(cursor_x + 2, layout.prompt_y + 6, cursor_x + 2, layout.prompt_y + layout.prompt_h - 6)
+    end
+end
+
 local function drawAgentRoster(state)
     local layout = getRosterLayout()
-    local roster_agents = state.roster_agents or {}
+    local roster_agents = getFilteredRosterAgents(state)
 
     state.roster_scroll_x = clampRosterScroll(state.roster_scroll_x, layout, #roster_agents)
 
@@ -349,11 +461,13 @@ local function drawAgentRoster(state)
     love.graphics.setColor(ROSTER_TITLE_COLOR)
     love.graphics.printf(
         "AGENT\nROSTER",
-        layout.x + ROSTER_PADDING_X,
-        layout.y + (layout.h - state.roster_font:getHeight() * 2) / 2,
-        ROSTER_TITLE_W,
+        layout.label_x,
+        layout.label_y,
+        layout.label_w,
         "center"
     )
+
+    drawRosterSearchPrompt(state, layout)
 
     love.graphics.setColor(ROSTER_DIVIDER_COLOR)
     love.graphics.line(
@@ -403,11 +517,16 @@ function jacl_state:enter()
     love.graphics.setDefaultFilter("linear", "linear", 1)
     love.graphics.setFont(love.graphics.newFont("assets/fonts/Furore.otf", 20))
     love.graphics.setBackgroundColor(BACKGROUND_COLOR)
+    agent_uix.setModalOffset(JACL_MODAL_OFFSET_Y)
 
     self.officer_font = love.graphics.newFont("assets/fonts/Furore.otf", 14)
     self.jacl_font = love.graphics.newFont("assets/fonts/Furore.otf", 18)
     self.roster_font = love.graphics.newFont("assets/fonts/Furore.otf", 13)
+    self.roster_prompt_font = love.graphics.newFont("assets/fonts/Furore.otf", 13)
+    self.roster_icon_font = love.graphics.newFont("assets/fonts/icons.otf", ROSTER_SEARCH_ICON_SIZE)
     self.roster_name_fonts = {}
+    self.roster_search_text = ""
+    self.roster_search_focused = false
     self.left_officers = officers.loadByIds(OFFICER_LEFT_IDS)
     self.right_officers = officers.loadByIds(OFFICER_RIGHT_IDS)
     self.roster_agents = loadRosterAgents()
@@ -429,6 +548,10 @@ function jacl_state:enter()
     end
 
     self.image = image_loader.newImage(self.image_path)
+end
+
+function jacl_state:leave()
+    agent_uix.setModalOffset(0)
 end
 
 function jacl_state:draw()
@@ -481,15 +604,27 @@ function jacl_state:draw()
 
     drawAgentRoster(self)
     agent_uix.draw()
+    agent_uix.drawOpenModalInfoPanel()
 
     love.graphics.setColor(1, 1, 1, 1)
 end
 
 function jacl_state:keypressed(key)
     if key == "escape" then
-        if not agent_uix.closeModal() then
+        if self.roster_search_focused then
+            self.roster_search_focused = false
+        elseif not agent_uix.closeModal() then
             love.event.quit()
         end
+    elseif self.roster_search_focused and key == "backspace" then
+        local byte_offset = utf8.offset(self.roster_search_text, -1)
+
+        if byte_offset then
+            self.roster_search_text = self.roster_search_text:sub(1, byte_offset - 1)
+            self.roster_scroll_x = 0
+        end
+    elseif self.roster_search_focused and (key == "return" or key == "kpenter") then
+        self.roster_search_focused = false
     end
 end
 
@@ -502,11 +637,27 @@ function jacl_state:mousepressed(x, y, button)
         return
     end
 
+    if pointInRosterPrompt(self, x, y) then
+        self.roster_search_focused = true
+        return
+    end
+
+    self.roster_search_focused = false
+
     local agent = getRosterAgentAtPoint(self, x, y)
 
     if agent then
         agent_uix.openModal(agent, "agent")
     end
+end
+
+function jacl_state:textinput(text)
+    if agent_uix.isModalOpen() or not self.roster_search_focused then
+        return
+    end
+
+    self.roster_search_text = (self.roster_search_text or "") .. text
+    self.roster_scroll_x = 0
 end
 
 function jacl_state:wheelmoved(x, y)
@@ -524,7 +675,7 @@ function jacl_state:wheelmoved(x, y)
         self.roster_scroll_x = clampRosterScroll(
             self.roster_scroll_x - wheel_delta * ROSTER_SCROLL_STEP,
             layout,
-            #(self.roster_agents or {})
+            #getFilteredRosterAgents(self)
         )
     end
 end
