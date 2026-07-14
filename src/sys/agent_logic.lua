@@ -726,11 +726,12 @@ function agent_logic.drawAgentHands(room)
     end
 end
 
-function agent_logic.initializeActionHand(agent, action_deck_lookup, card_index)
+function agent_logic.initializeActionHand(agent, action_deck_lookup, card_index, options)
     if not agent then
         return
     end
 
+    options = options or {}
     action_deck_lookup = action_deck_lookup or getActionDeckLookup()
     card_index = card_index or getCardIndex()
 
@@ -743,8 +744,11 @@ function agent_logic.initializeActionHand(agent, action_deck_lookup, card_index)
     agent.action_discard_pile = {}
     agent.action_hand = {}
     burn_logic.initializeAgent(agent)
-    burn_logic.drawCards(agent, nil, ACTION_HAND_SIZE)
-    equip_logic.drawFromEquippedLexDecks(agent)
+
+    if options.draw_hand ~= false then
+        burn_logic.drawCards(agent, nil, ACTION_HAND_SIZE)
+        equip_logic.drawFromEquippedLexDecks(agent)
+    end
 end
 
 function agent_logic.initializeActionHands(agents)

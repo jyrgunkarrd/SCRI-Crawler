@@ -11,19 +11,36 @@ local CORRIDOR_COLOR = { 0.21, 0.32, 0.29, 1 }
 local HOVER_COLOR = { 0.85, 0.78, 0.45, 0.55 }
 local START_COLOR = { 0.09, 0.075, 0.045, 1 }
 local START_FILL_COLOR = { 0.95, 0.82, 0.36, 0.9 }
+local START_TEXT_COLOR = { 0.09, 0.075, 0.045, 1 }
 local DOOR_FILL_COLOR = { 1, 1, 1, 1 }
 local DOOR_OUTLINE_COLOR = { 0.03, 0.025, 0.02, 1 }
 local DOOR_SELECT_COLOR = { 0.95, 0.82, 0.36, 0.35 }
 local SPAWN_MARKER_FILL_COLOR = { 1, 1, 1, 0.92 }
 local SPAWN_MARKER_TEXT_COLOR = { 0, 0, 0, 1 }
+local BOSS_SPAWN_MARKER_FILL_COLOR = { 165 / 255, 0, 74 / 255, 1 }
+local BOSS_SPAWN_MARKER_TEXT_COLOR = { 1, 1, 1, 1 }
 local DOOR_RADIUS_RATIO = 0.28
 local GRID_COLOR = { 1, 1, 1, 0.08 }
 local TEXT_COLOR = { 0.88, 0.88, 0.82, 1 }
 local BACKGROUND_COLOR = { 0.055, 0.058, 0.068, 1 }
+local MODAL_BACKDROP_COLOR = { 0, 0, 0, 0.48 }
+local MODAL_FILL_COLOR = { 0.035, 0.033, 0.03, 0.98 }
+local MODAL_OUTLINE_COLOR = { 1, 1, 1, 0.88 }
+local MODAL_FIELD_COLOR = { 0.08, 0.076, 0.066, 1 }
+local MODAL_FIELD_ACTIVE_COLOR = { 0.14, 0.13, 0.11, 1 }
+local MODAL_FIELD_OUTLINE_COLOR = { 1, 1, 1, 0.48 }
+local MODAL_W = 560
+local MODAL_H = 300
+local MODAL_FIELD_W = 360
+local MODAL_FIELD_H = 34
+local MODAL_FIELD_GAP = 18
 
 local state = {
     tiles = {},
     doors = {},
+    map_name = "",
+    map_id = "",
+    recommended_level = "",
     palette_id = 1,
     palette = {},
     swatch_index = 1,
@@ -32,7 +49,7 @@ local state = {
     dragging = false,
     erase_dragging = false,
     pan_dragging = false,
-    message = "R room  C corridor  D doors  S start  E spawn  Enter export",
+    message = "R room  C corridor  D doors  S start  E spawn  B boss  Enter export",
     paint_mode = "room",
     door_selection = nil,
     export_index = 1,
@@ -47,6 +64,7 @@ local state = {
     space_down = false,
     spawn_edit = nil,
     door_edit = nil,
+    map_info_edit = nil,
 }
 
 local function getSourceRoot()
@@ -315,6 +333,7 @@ local function setTile(q, r, value)
             r = r,
             start = existing and existing.start or nil,
             spawn_event = existing and existing.spawn_event or nil,
+            boss_spawner = existing and existing.boss_spawner or nil,
             corridor = state.paint_mode == "corridor" or nil,
             palette = state.palette_id,
             swatch = state.swatch_index,
@@ -337,15 +356,22 @@ local function setTile(q, r, value)
     end
 end
 
+local getNextStartNumber
+
 local function toggleStartAt(q, r)
     local key = tileKey(q, r)
     local tile = state.tiles[key] or { q = q, r = r }
 
-    tile.start = not tile.start or nil
+    if tile.start then
+        tile.start = nil
+    else
+        tile.start = getNextStartNumber()
+    end
+
     state.tiles[key] = tile
 
     if tile.start then
-        state.message = ("Marked start at q=%d r=%d"):format(q, r)
+        state.message = ("Marked start %d at q=%d r=%d"):format(tile.start, q, r)
     else
         state.message = ("Cleared start at q=%d r=%d"):format(q, r)
     end
@@ -383,6 +409,9 @@ local function commitSpawnEventEdit()
 
     if tile then
         tile.spawn_event = edit.text ~= "" and edit.text or nil
+        if not tile.spawn_event then
+            tile.boss_spawner = nil
+        end
         state.message = tile.spawn_event
             and ("Set spawn event %q at q=%d r=%d"):format(tile.spawn_event, edit.q, edit.r)
             or ("Cleared spawn event at q=%d r=%d"):format(edit.q, edit.r)
@@ -392,6 +421,21 @@ local function commitSpawnEventEdit()
     end
 
     state.spawn_edit = nil
+end
+
+local function toggleBossSpawnerAt(q, r)
+    local tile = state.tiles[tileKey(q, r)]
+
+    if not tile or not tile.spawn_event then
+        state.message = "Boss status can only be toggled on an event spawner."
+        return
+    end
+
+    tile.boss_spawner = not tile.boss_spawner or nil
+    state.message = tile.boss_spawner
+        and ("Marked boss spawner at q=%d r=%d"):format(q, r)
+        or ("Cleared boss spawner at q=%d r=%d"):format(q, r)
+    markDirty()
 end
 
 local function cancelSpawnEventEdit()
@@ -447,6 +491,74 @@ local function cancelDoorEventEdit()
         state.door_edit = nil
         state.message = "Door event edit cancelled."
     end
+end
+
+local function getDefaultMapId()
+    local file_name = state.active_file_name or ("map_%03d.lua"):format(state.export_index)
+
+    return getBaseName(file_name)
+end
+
+local function startMapInfoEdit()
+    cancelConfirmation()
+    state.spawn_edit = nil
+    state.door_edit = nil
+    state.door_selection = nil
+    state.map_info_edit = {
+        active_field = 1,
+        fields = {
+            { key = "map_name", label = "Map Name", text = state.map_name or "" },
+            { key = "map_id", label = "Map ID", text = state.map_id ~= "" and state.map_id or getDefaultMapId() },
+            { key = "recommended_level", label = "Recommended Level", text = tostring(state.recommended_level or "") },
+        },
+        suppress_text = "i",
+    }
+    state.message = "Editing map information."
+end
+
+local function commitMapInfoEdit()
+    local edit = state.map_info_edit
+
+    if not edit then
+        return
+    end
+
+    for _, field in ipairs(edit.fields) do
+        state[field.key] = field.text
+    end
+
+    state.map_info_edit = nil
+    state.message = "Map information saved."
+    markDirty()
+end
+
+local function cancelMapInfoEdit()
+    if state.map_info_edit then
+        state.map_info_edit = nil
+        state.message = "Map information edit cancelled."
+    end
+end
+
+local function moveMapInfoField(delta)
+    local edit = state.map_info_edit
+
+    if not edit then
+        return
+    end
+
+    edit.active_field = ((edit.active_field - 1 + delta) % #edit.fields) + 1
+end
+
+local function editMapInfoBackspace()
+    local edit = state.map_info_edit
+
+    if not edit then
+        return
+    end
+
+    local field = edit.fields[edit.active_field]
+
+    field.text = field.text:sub(1, -2)
 end
 
 local function applyBrush(x, y, value)
@@ -514,6 +626,38 @@ local function sortedTiles()
     end)
 
     return tiles
+end
+
+local function normalizeStartNumbers()
+    local unnumbered_starts = {}
+    local max_start = 0
+
+    for _, tile in ipairs(sortedTiles()) do
+        if type(tile.start) == "number" then
+            max_start = math.max(max_start, tile.start)
+        elseif tile.start then
+            unnumbered_starts[#unnumbered_starts + 1] = tile
+        end
+    end
+
+    for _, tile in ipairs(unnumbered_starts) do
+        max_start = max_start + 1
+        tile.start = max_start
+    end
+end
+
+getNextStartNumber = function()
+    normalizeStartNumbers()
+
+    local max_start = 0
+
+    for _, tile in pairs(state.tiles) do
+        if type(tile.start) == "number" then
+            max_start = math.max(max_start, tile.start)
+        end
+    end
+
+    return max_start + 1
 end
 
 local function getNativeOutputDir()
@@ -601,9 +745,16 @@ local function updateActiveFileAfterSave(file_name)
 end
 
 local function serializeMap(file_name)
+    normalizeStartNumbers()
+
+    local map_id = state.map_id ~= "" and state.map_id or getBaseName(file_name)
+    local recommended_level = tonumber(state.recommended_level)
     local lines = {
         "return {",
-        ("    id = %q,"):format(getBaseName(file_name)),
+        ("    id = %q,"):format(map_id),
+        ("    name = %q,"):format(state.map_name or ""),
+        recommended_level and ("    recommended_level = %s,"):format(recommended_level)
+            or ("    recommended_level = %q,"):format(state.recommended_level or ""),
         "    tiles = {",
     }
 
@@ -614,7 +765,7 @@ local function serializeMap(file_name)
         }
 
         if tile.start then
-            fields[#fields + 1] = "start = true"
+            fields[#fields + 1] = ("start = %d"):format(tile.start)
         end
 
         if tile.corridor then
@@ -623,6 +774,10 @@ local function serializeMap(file_name)
 
         if tile.spawn_event then
             fields[#fields + 1] = ("spawn_event = %q"):format(tile.spawn_event)
+        end
+
+        if tile.boss_spawner then
+            fields[#fields + 1] = "boss_spawner = true"
         end
 
         if tile.palette then
@@ -756,6 +911,9 @@ local function performLoadMapFile(next_index, next_file_name)
 
     state.tiles = {}
     state.doors = {}
+    state.map_name = map_file.name or ""
+    state.map_id = map_file.id or getBaseName(state.active_file_name)
+    state.recommended_level = map_file.recommended_level and tostring(map_file.recommended_level) or ""
 
     for _, tile in ipairs(map_file.tiles or {}) do
         state.tiles[tileKey(tile.q, tile.r)] = {
@@ -764,11 +922,14 @@ local function performLoadMapFile(next_index, next_file_name)
             start = tile.start or nil,
             corridor = tile.corridor or nil,
             spawn_event = tile.spawn_event,
+            boss_spawner = tile.boss_spawner or nil,
             palette = tile.palette,
             swatch = tile.swatch,
             color = tile.color and copyColor(tile.color) or nil,
         }
     end
+
+    normalizeStartNumbers()
 
     for _, door in ipairs(map_file.doors or {}) do
         if door.a and door.b then
@@ -840,12 +1001,17 @@ local function drawTiles()
         love.graphics.polygon("fill", buildHexPoints(x, y))
 
         if tile.start then
+            local font = love.graphics.getFont()
+            local label = tostring(tile.start)
+
             love.graphics.setColor(START_FILL_COLOR)
             love.graphics.polygon("fill", buildHexPoints(x, y, HEX_SIZE * 0.42))
             love.graphics.setColor(START_COLOR)
             love.graphics.setLineWidth(3)
             love.graphics.polygon("line", buildHexPoints(x, y, HEX_SIZE * 0.42))
             love.graphics.setLineWidth(1)
+            love.graphics.setColor(START_TEXT_COLOR)
+            love.graphics.print(label, x - font:getWidth(label) / 2, y - font:getHeight() / 2)
         end
 
         if tile.spawn_event then
@@ -854,9 +1020,9 @@ local function drawTiles()
             local width = 22
             local height = 22
 
-            love.graphics.setColor(SPAWN_MARKER_FILL_COLOR)
+            love.graphics.setColor(tile.boss_spawner and BOSS_SPAWN_MARKER_FILL_COLOR or SPAWN_MARKER_FILL_COLOR)
             love.graphics.rectangle("fill", x - width / 2, y - height / 2, width, height)
-            love.graphics.setColor(SPAWN_MARKER_TEXT_COLOR)
+            love.graphics.setColor(tile.boss_spawner and BOSS_SPAWN_MARKER_TEXT_COLOR or SPAWN_MARKER_TEXT_COLOR)
             love.graphics.print(label, x - font:getWidth(label) / 2, y - font:getHeight() / 2)
         end
     end
@@ -971,6 +1137,58 @@ local function drawPalette()
     love.graphics.setColor(1, 1, 1, 1)
 end
 
+local function drawMapInfoModal()
+    local edit = state.map_info_edit
+
+    if not edit then
+        return
+    end
+
+    local screen_w = love.graphics.getWidth()
+    local screen_h = love.graphics.getHeight()
+    local x = (screen_w - MODAL_W) / 2
+    local y = (screen_h - MODAL_H) / 2
+    local field_x = x + MODAL_W - MODAL_FIELD_W - 34
+    local field_y = y + 82
+    local font = love.graphics.getFont()
+
+    love.graphics.setColor(MODAL_BACKDROP_COLOR)
+    love.graphics.rectangle("fill", 0, 0, screen_w, screen_h)
+    love.graphics.setColor(MODAL_FILL_COLOR)
+    love.graphics.rectangle("fill", x, y, MODAL_W, MODAL_H)
+    love.graphics.setColor(MODAL_OUTLINE_COLOR)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", x, y, MODAL_W, MODAL_H)
+    love.graphics.setLineWidth(1)
+
+    love.graphics.setColor(TEXT_COLOR)
+    love.graphics.print("Map Information", x + 28, y + 28)
+
+    for index, field in ipairs(edit.fields) do
+        local row_y = field_y + (index - 1) * (MODAL_FIELD_H + MODAL_FIELD_GAP)
+        local active = index == edit.active_field
+
+        love.graphics.setColor(TEXT_COLOR)
+        love.graphics.print(field.label, x + 34, row_y + 7)
+        love.graphics.setColor(active and MODAL_FIELD_ACTIVE_COLOR or MODAL_FIELD_COLOR)
+        love.graphics.rectangle("fill", field_x, row_y, MODAL_FIELD_W, MODAL_FIELD_H)
+        love.graphics.setColor(MODAL_FIELD_OUTLINE_COLOR)
+        love.graphics.rectangle("line", field_x, row_y, MODAL_FIELD_W, MODAL_FIELD_H)
+        love.graphics.setColor(TEXT_COLOR)
+        love.graphics.print(field.text, field_x + 10, row_y + (MODAL_FIELD_H - font:getHeight()) / 2)
+
+        if active and math.floor(love.timer.getTime() * 2) % 2 == 0 then
+            local cursor_x = field_x + 10 + font:getWidth(field.text)
+
+            love.graphics.line(cursor_x + 2, row_y + 6, cursor_x + 2, row_y + MODAL_FIELD_H - 6)
+        end
+    end
+
+    love.graphics.setColor(1, 1, 1, 0.68)
+    love.graphics.print("Tab selects field   Enter saves   Esc cancels", x + 28, y + MODAL_H - 42)
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
 function editor.load()
     love.window.setTitle("SCRI Diablo Map Editor")
     love.graphics.setBackgroundColor(BACKGROUND_COLOR)
@@ -992,9 +1210,26 @@ function editor.draw()
     drawHover()
     drawStatus()
     drawPalette()
+    drawMapInfoModal()
 end
 
 function editor.keypressed(key)
+    if state.map_info_edit then
+        if key == "escape" then
+            cancelMapInfoEdit()
+        elseif key == "return" or key == "kpenter" then
+            commitMapInfoEdit()
+        elseif key == "tab" or key == "down" then
+            moveMapInfoField(1)
+        elseif key == "up" then
+            moveMapInfoField(-1)
+        elseif key == "backspace" then
+            editMapInfoBackspace()
+        end
+
+        return
+    end
+
     if state.spawn_edit then
         if key == "escape" then
             cancelSpawnEventEdit()
@@ -1082,6 +1317,13 @@ function editor.keypressed(key)
         local q, r = screenToTile(mouse_x, mouse_y)
 
         startSpawnEventEditAt(q, r)
+    elseif key == "b" then
+        local mouse_x, mouse_y = love.mouse.getPosition()
+        local q, r = screenToTile(mouse_x, mouse_y)
+
+        toggleBossSpawnerAt(q, r)
+    elseif key == "i" then
+        startMapInfoEdit()
     elseif key == "return" or key == "kpenter" then
         exportMap()
     elseif key == "a" then
@@ -1102,7 +1344,11 @@ function editor.keypressed(key)
         state.doors = {}
         state.spawn_edit = nil
         state.door_edit = nil
+        state.map_info_edit = nil
         state.door_selection = nil
+        state.map_name = ""
+        state.map_id = ""
+        state.recommended_level = ""
         state.active_file_name = nil
         state.active_file_index = nil
         state.message = "Cleared map."
@@ -1127,6 +1373,21 @@ function editor.keypressed(key)
 end
 
 function editor.textinput(text)
+    if state.map_info_edit then
+        local edit = state.map_info_edit
+
+        if edit.suppress_text and text:lower() == edit.suppress_text then
+            edit.suppress_text = nil
+            return
+        end
+
+        edit.suppress_text = nil
+
+        local field = edit.fields[edit.active_field]
+        field.text = field.text .. text
+        return
+    end
+
     local edit = state.spawn_edit or state.door_edit
 
     if not edit then
@@ -1150,6 +1411,26 @@ function editor.keyreleased(key)
 end
 
 function editor.mousepressed(x, y, button)
+    if state.map_info_edit then
+        if button == 1 then
+            local modal_x = (love.graphics.getWidth() - MODAL_W) / 2
+            local modal_y = (love.graphics.getHeight() - MODAL_H) / 2
+            local field_x = modal_x + MODAL_W - MODAL_FIELD_W - 34
+            local field_y = modal_y + 82
+
+            for index in ipairs(state.map_info_edit.fields) do
+                local row_y = field_y + (index - 1) * (MODAL_FIELD_H + MODAL_FIELD_GAP)
+
+                if x >= field_x and x <= field_x + MODAL_FIELD_W and y >= row_y and y <= row_y + MODAL_FIELD_H then
+                    state.map_info_edit.active_field = index
+                    break
+                end
+            end
+        end
+
+        return
+    end
+
     if state.spawn_edit or state.door_edit or state.pending_load then
         return
     end
@@ -1195,7 +1476,7 @@ function editor.mousereleased(_, _, button)
 end
 
 function editor.mousemoved(x, y, dx, dy)
-    if state.spawn_edit or state.door_edit or state.pending_load then
+    if state.spawn_edit or state.door_edit or state.map_info_edit or state.pending_load then
         return
     end
 

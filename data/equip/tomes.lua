@@ -7,6 +7,7 @@ local tomes = {
 
         id = "PHNX",
         name = "Lexurgy of the Pheonix",
+        category = "equipment",
         slot = {
 
             "Lex",

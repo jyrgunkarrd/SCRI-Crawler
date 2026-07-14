@@ -10,6 +10,7 @@ local INVENTORY_ROWS = 4
 local definition_lookup = nil
 local card_index = nil
 local next_uid = 1
+local removeFromCurrentLocation
 
 local function getDirectoryItems(path)
     if love and love.filesystem and love.filesystem.getDirectoryItems then
@@ -101,6 +102,7 @@ local function cloneItem(definition)
         uid = next_uid,
         id = definition.id,
         name = definition.name or definition.id,
+        category = definition.category,
         slots = normalizeSlots(definition),
         stat_req = normalizeStatRequirements(definition),
         inv_size = width * height,
@@ -211,6 +213,32 @@ function equip_logic.getDefinition(id)
     return equip_logic.getDefinitions()[id]
 end
 
+function equip_logic.createItem(definition_or_id)
+    local definition = type(definition_or_id) == "table" and definition_or_id
+        or equip_logic.getDefinition(definition_or_id)
+
+    if not definition then
+        return nil
+    end
+
+    return cloneItem(definition)
+end
+
+function equip_logic.removeFromAgent(agent, item)
+    if not agent or not item then
+        return false
+    end
+
+    removeFromCurrentLocation(agent, item)
+
+    item.location = nil
+    item.slot_index = nil
+    item.inv_col = nil
+    item.inv_row = nil
+
+    return true
+end
+
 local function ensureRuntime(agent)
     agent.equipment_runtime = agent.equipment_runtime or {
         slots = {},
@@ -220,7 +248,7 @@ local function ensureRuntime(agent)
     return agent.equipment_runtime
 end
 
-local function removeFromCurrentLocation(agent, item)
+function removeFromCurrentLocation(agent, item)
     local runtime = ensureRuntime(agent)
 
     for index, equipped in pairs(runtime.slots) do
@@ -259,6 +287,10 @@ end
 
 function equip_logic.canPlaceInInventory(agent, item, col, row, ignored_item)
     if not agent or not item then
+        return false
+    end
+
+    if item.lock_in == true then
         return false
     end
 
@@ -316,10 +348,6 @@ function equip_logic.canPlaceInSlot(agent, item, slot_index)
 end
 
 function equip_logic.moveToInventory(agent, item, col, row)
-    if item and item.location == "slot" and item.locked_in then
-        return false
-    end
-
     if not equip_logic.canPlaceInInventory(agent, item, col, row, item) then
         return false
     end
@@ -369,7 +397,7 @@ function equip_logic.moveToSlot(agent, item, slot_index)
 end
 
 function equip_logic.canDragItem(item)
-    return item and not (item.location == "slot" and item.locked_in)
+    return item ~= nil
 end
 
 function equip_logic.hasLexurgyCardInHand(agent)

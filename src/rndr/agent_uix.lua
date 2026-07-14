@@ -1265,13 +1265,15 @@ local function isDraggedItem(item)
     return equip_drag and equip_drag.item == item
 end
 
-local function drawEquipmentDragHighlights(agent, layout)
-    if not equip_drag or equip_drag.agent ~= agent then
+local function drawEquipmentDragHighlights(agent, layout, external_item)
+    if not external_item and (not equip_drag or equip_drag.agent ~= agent) then
         return
     end
 
+    local item = external_item or equip_drag.item
+
     for _, rect in ipairs(getEquipSlotRects(layout)) do
-        if equip_logic.canPlaceInSlot(agent, equip_drag.item, rect.index) then
+        if equip_logic.canPlaceInSlot(agent, item, rect.index) then
             love.graphics.setColor(EQUIP_VALID_COLOR[1], EQUIP_VALID_COLOR[2], EQUIP_VALID_COLOR[3], 0.18)
             love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h)
             love.graphics.setColor(EQUIP_VALID_COLOR)
@@ -1282,8 +1284,8 @@ local function drawEquipmentDragHighlights(agent, layout)
     end
 end
 
-local function drawEquipmentInventoryGhost(agent, layout)
-    if not equip_drag or equip_drag.agent ~= agent then
+local function drawEquipmentInventoryGhost(agent, layout, external_item)
+    if not external_item and (not equip_drag or equip_drag.agent ~= agent) then
         return
     end
 
@@ -1295,7 +1297,7 @@ local function drawEquipmentInventoryGhost(agent, layout)
     end
 
     local inventory = getInventoryLayout(layout)
-    local item = equip_drag.item
+    local item = external_item or equip_drag.item
     local valid = equip_logic.canPlaceInInventory(agent, item, col, row, item)
     local color = valid and EQUIP_GHOST_VALID_COLOR or EQUIP_GHOST_INVALID_COLOR
     local rect = {
@@ -1589,6 +1591,10 @@ function agent_uix.drawOpenModalInfoPanel()
     return true
 end
 
+function agent_uix.isDeckViewerOpen()
+    return action_deck_viewer.isOpen()
+end
+
 function agent_uix.setModalOffset(y)
     modal_offset_y = tonumber(y) or 0
 end
@@ -1606,6 +1612,83 @@ function agent_uix.openModal(unit, kind)
     sfx_logic.playNamed("token_select")
 
     return true
+end
+
+function agent_uix.placeItemInOpenModalInventory(item, x, y)
+    if not modal_unit or modal_kind == "enemy" or modal_kind == "hazard" then
+        return false
+    end
+
+    local layout = getModalLayout()
+    local col, row = getInventoryCellAtPoint(layout, x, y)
+
+    if not col or not row then
+        return false
+    end
+
+    return equip_logic.moveToInventory(modal_unit, item, col, row)
+end
+
+function agent_uix.placeItemInOpenModalSlot(item, x, y)
+    if not modal_unit or modal_kind == "enemy" or modal_kind == "hazard" then
+        return false
+    end
+
+    local layout = getModalLayout()
+
+    for _, rect in ipairs(getEquipSlotRects(layout)) do
+        if pointInRect(x, y, rect.x, rect.y, rect.w, rect.h) then
+            return equip_logic.moveToSlot(modal_unit, item, rect.index)
+        end
+    end
+
+    return false
+end
+
+function agent_uix.drawOpenModalInventoryGhost(item)
+    if not modal_unit or modal_kind == "enemy" or modal_kind == "hazard" or not item then
+        return false
+    end
+
+    drawEquipmentInventoryGhost(modal_unit, getModalLayout(), item)
+
+    return true
+end
+
+function agent_uix.drawOpenModalSlotHighlights(item)
+    if not modal_unit or modal_kind == "enemy" or modal_kind == "hazard" or not item then
+        return false
+    end
+
+    drawEquipmentDragHighlights(modal_unit, getModalLayout(), item)
+
+    return true
+end
+
+function agent_uix.takeDraggedItemForRail(accepts_item)
+    if not equip_drag or not modal_unit or modal_kind == "enemy" or modal_kind == "hazard" then
+        return nil
+    end
+
+    local item = equip_drag.item
+
+    if accepts_item and not accepts_item(item) then
+        return nil
+    end
+
+    equip_drag = nil
+
+    if equip_logic.removeFromAgent(modal_unit, item) then
+        pinned_equipment = nil
+        hovered_preview_card_key = nil
+        return item
+    end
+
+    return nil
+end
+
+function agent_uix.getDraggedEquipmentItem()
+    return equip_drag and equip_drag.item or nil
 end
 
 function agent_uix.mousepressed(x, y, button)

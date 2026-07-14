@@ -251,4 +251,8 @@ Mammoth Rumors:
  - Tales of Castles
 
 
+Okay - we need to be able to toggle event spawners in the editor as boss event spawners, which will flag their spawn enemies as bosses 
+
+if all bosses in a map are eliminated, mission complete 
+
 

@@ -195,6 +195,7 @@ local function triggerSpawner(room, component, spawner_tile, definitions)
     if spawn.hazard then
         spawn_tile.hazard = spawn
     else
+        spawn.boss = not not spawner_tile.boss_spawner
         spawn_tile.enemy = spawn
     end
 

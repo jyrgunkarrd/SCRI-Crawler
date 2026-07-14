@@ -14,6 +14,7 @@ local HAZARD_PORTRAIT_DIR = "assets/images/hazard"
 local PORTRAIT_RADIUS = HEX_SIZE * 0.78
 local PORTRAIT_OUTLINE_COLOR = { 0.015, 0.012, 0.01, 1 }
 local ENEMY_PORTRAIT_OUTLINE_COLOR = { 0.6118, 0, 0.0431, 1 }
+local BOSS_PORTRAIT_OUTLINE_COLOR = { 165 / 255, 0, 74 / 255, 1 }
 local HAZARD_PORTRAIT_OUTLINE_COLOR = { 0.9765, 0.6314, 0, 1 }
 local ENEMY_PORTRAIT_OUTLINE_INSET = 5
 local EXHAUSTED_PORTRAIT_COLOR = { 0.34, 0.34, 0.34, 0.72 }
@@ -369,7 +370,7 @@ local function drawEnemyPortraitTile(tile, center_x, center_y, selected)
         center_y,
         radius,
         { 1, 1, 1, 1 },
-        ENEMY_PORTRAIT_OUTLINE_COLOR,
+        tile.enemy.boss and BOSS_PORTRAIT_OUTLINE_COLOR or ENEMY_PORTRAIT_OUTLINE_COLOR,
         radius - ENEMY_PORTRAIT_OUTLINE_INSET,
         PORTRAIT_OUTLINE_COLOR
     )

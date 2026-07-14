@@ -7,7 +7,8 @@ local rumors = {
 
         id = "MAM_8",
         name = "The Eight Songs",
-        inv_size = {H = 4, W = 4},
+        inv_size = {H = 2, W = 2},
+        category = "rumor",
 
     },
 
@@ -16,6 +17,7 @@ local rumors = {
         id = "MAM_SENG",
         name = "Fuji Masakage's Diary",
         inv_size = {H = 2, W = 2},
+        category = "rumor", 
 
     },
 

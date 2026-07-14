@@ -56,6 +56,15 @@ local function buildProceduralRoom()
 end
 
 local function tileSort(a, b)
+    local a_start = type(a.start) == "number" and a.start or nil
+    local b_start = type(b.start) == "number" and b.start or nil
+
+    if a_start and b_start and a_start ~= b_start then
+        return a_start < b_start
+    elseif a_start ~= b_start then
+        return a_start ~= nil
+    end
+
     if a.r == b.r then
         return a.q < b.q
     end
@@ -94,11 +103,12 @@ local function getDevSquadAgentIds()
     return dev_squad.playeragents or {}
 end
 
-local function populatePlayerAgents(target_room)
+local function populatePlayerAgents(target_room, agents_by_start)
     local agents_by_id = getAgentDefinitionMap()
     local agent_ids = getDevSquadAgentIds()
     local start_tiles = {}
     local placed_agents = {}
+    local start_tile_by_number = {}
 
     for _, tile in ipairs(target_room.tiles or {}) do
         tile.agent = nil
@@ -106,10 +116,32 @@ local function populatePlayerAgents(target_room)
 
         if tile.start then
             start_tiles[#start_tiles + 1] = tile
+
+            if type(tile.start) == "number" then
+                start_tile_by_number[tile.start] = tile
+            end
         end
     end
 
     table.sort(start_tiles, tileSort)
+
+    if agents_by_start then
+        for slot_index = 1, 4 do
+            local agent = agents_by_start[slot_index]
+            local tile = start_tile_by_number[slot_index] or start_tiles[slot_index]
+
+            if agent and not tile then
+                print("No start tile available for strike slot " .. tostring(slot_index) .. ".")
+            elseif agent then
+                agent_logic.ensureRuntimeStats(agent)
+                tile.agent = agent
+                placed_agents[#placed_agents + 1] = agent
+            end
+        end
+
+        agent_logic.initializeActionHands(placed_agents)
+        return
+    end
 
     for index, agent_id in ipairs(agent_ids) do
         local tile = start_tiles[index]
@@ -160,12 +192,14 @@ local function getDevMapPath()
     return "assets/maps/" .. map .. ".lua"
 end
 
-local function loadMapFile()
-    local map_path = getDevMapPath()
+local function loadMapFile(options)
+    options = options or {}
+
+    local map_path = options.map_path or getDevMapPath()
 
     if not map_path then
         local fallback_room = buildProceduralRoom()
-        populatePlayerAgents(fallback_room)
+        populatePlayerAgents(fallback_room, options.agents_by_start)
         return fallback_room
     end
 
@@ -174,7 +208,7 @@ local function loadMapFile()
     if not chunk then
         print("Unable to load map file '" .. map_path .. "', falling back to procedural map: " .. tostring(load_error))
         local fallback_room = buildProceduralRoom()
-        populatePlayerAgents(fallback_room)
+        populatePlayerAgents(fallback_room, options.agents_by_start)
         return fallback_room
     end
 
@@ -183,7 +217,7 @@ local function loadMapFile()
     if not ok then
         print("Unable to run map file '" .. map_path .. "', falling back to procedural map: " .. tostring(map_file))
         local fallback_room = buildProceduralRoom()
-        populatePlayerAgents(fallback_room)
+        populatePlayerAgents(fallback_room, options.agents_by_start)
         return fallback_room
     end
 
@@ -197,6 +231,7 @@ local function loadMapFile()
             start = tile.start,
             corridor = tile.corridor,
             spawn_event = tile.spawn_event,
+            boss_spawner = tile.boss_spawner,
             palette = tile.palette,
             swatch = tile.swatch,
             color = tile.color,
@@ -205,6 +240,8 @@ local function loadMapFile()
 
     local loaded_room = {
         id = map_file.id or "map_001",
+        name = map_file.name,
+        recommended_level = map_file.recommended_level,
         path = map_path,
         target_count = #tiles,
         chamber_tiles = tiles,
@@ -214,7 +251,7 @@ local function loadMapFile()
     }
 
     door_room_logic.initialize(loaded_room)
-    populatePlayerAgents(loaded_room)
+    populatePlayerAgents(loaded_room, options.agents_by_start)
 
     return loaded_room
 end
@@ -226,7 +263,7 @@ local function triggerPlayerRoomSpawns(target_room)
 end
 
 local function resetMission()
-    mission.room = loadMapFile()
+    mission.room = loadMapFile(mission.launch_options)
     event_spawn.initialize(mission.room)
     triggerPlayerRoomSpawns(mission.room)
     agent_logic.clearSelection()
@@ -236,13 +273,14 @@ local function resetMission()
     camera.reset()
 end
 
-function mission:enter()
+function mission:enter(_, launch_options)
+    self.launch_options = launch_options
     love.math.setRandomSeed(os.time())
     love.graphics.setDefaultFilter("linear", "linear", 1)
     love.graphics.setFont(love.graphics.newFont("assets/fonts/Furore.otf", 20))
     love.graphics.setBackgroundColor(0.055, 0.058, 0.068)
 
-    self.room = loadMapFile()
+    self.room = loadMapFile(self.launch_options)
     event_spawn.initialize(self.room)
     triggerPlayerRoomSpawns(self.room)
     agent_logic.clearSelection()

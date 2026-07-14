@@ -18,6 +18,7 @@ Controls:
 - Right click / drag: erase hexes
 - `S`: toggle start marker on the hovered hex
 - `E`: edit the hovered hex's spawn event string, then `Enter` saves or `Esc` cancels
+- `B`: toggle the hovered event spawner between a regular and boss spawner
 - `R`: paint room hexes
 - `C`: paint corridor hexes
 - `D`: door mode
@@ -53,7 +54,7 @@ return {
     id = "map_001",
     tiles = {
         { q = 0, r = 0, start = true, palette = 1, swatch = 1, color = { 0.2800, 0.4200, 0.3600, 1.0000 } },
-        { q = 1, r = 0, corridor = true, spawn_event = "ENEMY_ID", palette = 1, swatch = 2, color = { 0.2100, 0.3200, 0.2900, 1.0000 } },
+        { q = 1, r = 0, corridor = true, spawn_event = "ENEMY_ID", boss_spawner = true, palette = 1, swatch = 2, color = { 0.2100, 0.3200, 0.2900, 1.0000 } },
     },
     doors = {
         { a = { q = 0, r = 0 }, b = { q = 1, r = 0 } },

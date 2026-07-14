@@ -45,7 +45,10 @@ local function scanDirectory(path, category_path)
             next_category_path[#next_category_path + 1] = item
             scanDirectory(item_path, next_category_path)
         elseif info and info.type == "file" and item:match("%.lua$") and item ~= "index.lua" then
-            addDefinitions(category_path, pathToModule(item_path))
+            local module_category_path = { unpack(category_path) }
+
+            module_category_path[#module_category_path + 1] = item:gsub("%.lua$", "")
+            addDefinitions(module_category_path, pathToModule(item_path))
         end
     end
 end
