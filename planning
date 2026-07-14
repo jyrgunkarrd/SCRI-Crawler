@@ -256,3 +256,28 @@ Okay - we need to be able to toggle event spawners in the editor as boss event s
 if all bosses in a map are eliminated, mission complete 
 
 
+
+We now need mission rewards and rumor mission chains.
+
+Mission rewards are modified by luggage; mission chains are determined by rumors.
+
+
+Okay. Just Scratch as a resource.
+
+
+Should we create a budget? 
+
+Yes. 
+
+Budget screen is just a series of buttons. Player can sign off on payments or not; not signing causes consequences, unless the player gets lucky (with their luck modified by their reputation) 
+
+For fun we could also capture the player's signature, maybe? And use that as a graphic for the sign-off ?
+
+
+Rumors work. 
+
+We need rewards. 
+
+...I think Luggage should fill up. 
+
+

@@ -96,6 +96,16 @@ local agents = {
 
         },
         shout_select = "I see them.",
+        start_equip_cache = {
+
+            rumors = {
+
+                "MAM_8",
+                "MAM_SENG",
+
+            },
+
+        },
 
     },
 
@@ -133,6 +143,16 @@ local agents = {
 
         },
         shout_select = "We're ready.",
+        start_equip_cache = {
+
+            rumors = {
+
+                "MAM_8",
+                "MAM_SENG",
+
+            },
+
+        },
 
     },
 
@@ -181,6 +201,16 @@ local agents = {
 
         },
         shout_select = "Say the word.",
+        start_equip_cache = {
+
+            rumors = {
+
+                "MAM_8",
+                "MAM_SENG",
+
+            },
+
+        },
 
     },
 
@@ -218,6 +248,16 @@ local agents = {
 
         },
         shout_select = "MUNCH HUNGRY!",
+        start_equip_cache = {
+
+            rumors = {
+
+                "MAM_8",
+                "MAM_SENG",
+
+            },
+
+        },
 
     },
 
@@ -261,6 +301,16 @@ local agents = {
         
         },
         shout_select = "They're dead already.",
+        start_equip_cache = {
+
+            rumors = {
+
+                "MAM_8",
+                "MAM_SENG",
+
+            },
+
+        },
 
     },
 
@@ -304,6 +354,16 @@ local agents = {
         
         },
         shout_select = "Good news?",
+        start_equip_cache = {
+
+            rumors = {
+
+                "MAM_8",
+                "MAM_SENG",
+
+            },
+
+        },
 
     },
 

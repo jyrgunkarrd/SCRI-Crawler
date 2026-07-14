@@ -80,8 +80,8 @@ local function loadAgents()
         local agent = agents_by_id[agent_id]
 
         if agent then
-            agent_logic.ensureRuntimeStats(agent)
-            agent_logic.initializeActionHand(agent, nil, nil, { draw_hand = false })
+            agent_logic.ensureRuntimeStats(agent, { equipment_draw_card = false })
+            agent_logic.ensureActionHand(agent, { draw_hand = false })
             roster_agents[#roster_agents + 1] = agent
         else
             print("Unknown agent id in dev roster: " .. tostring(agent_id))

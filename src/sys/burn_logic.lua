@@ -11,23 +11,8 @@ local function slotKey(slot)
     return tostring(slot)
 end
 
-local function shuffle(cards)
-    for index = #cards, 2, -1 do
-        local swap_index = love.math.random(index)
-
-        cards[index], cards[swap_index] = cards[swap_index], cards[index]
-    end
-end
-
 local function moveDiscardIntoDrawPile(agent)
-    agent.action_draw_pile = agent.action_draw_pile or {}
-    agent.action_discard_pile = agent.action_discard_pile or {}
-
-    while #agent.action_discard_pile > 0 do
-        agent.action_draw_pile[#agent.action_draw_pile + 1] = table.remove(agent.action_discard_pile)
-    end
-
-    shuffle(agent.action_draw_pile)
+    action_deck_logic.reshuffleDiscardIntoDrawPile(agent)
 end
 
 local function fatigueEligibleSlots(agent)
@@ -92,7 +77,7 @@ local function discardLexurgyCardsFromHand(agent)
     for index = #agent.action_hand, 1, -1 do
         local card = agent.action_hand[index]
 
-        if card and card.lexurgy then
+        if card and card.lex_source then
             table.remove(agent.action_hand, index)
             equip_logic.discardLexurgyCard(card)
         end
@@ -182,15 +167,15 @@ function burn_logic.drawHand(agent, room, hand_size, options)
         return 0, "missing_agent"
     end
 
-    local kept_lexurgy = {}
+    local kept_equipment_cards = {}
 
     for _, card in ipairs(agent.action_hand or {}) do
-        if card.lexurgy then
-            kept_lexurgy[#kept_lexurgy + 1] = card
+        if card.lex_source then
+            kept_equipment_cards[#kept_equipment_cards + 1] = card
         end
     end
 
-    agent.action_hand = kept_lexurgy
+    agent.action_hand = kept_equipment_cards
 
     return burn_logic.drawCards(agent, room, hand_size or HAND_SIZE, options)
 end

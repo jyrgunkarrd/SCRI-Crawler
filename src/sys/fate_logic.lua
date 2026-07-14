@@ -214,6 +214,18 @@ local function reshuffleDiscardIntoDeck(agent)
     shuffle(agent.fate_runtime.deck)
 end
 
+function fate_logic.reshuffleDiscardIntoDeck(agent)
+    if not agent or not agent.fate_runtime or not agent.fate_runtime.discard
+        or #agent.fate_runtime.discard == 0
+    then
+        return false
+    end
+
+    reshuffleDiscardIntoDeck(agent)
+
+    return true
+end
+
 function fate_logic.initializeFateDeck(agent)
     if not agent or not agent.fate then
         return

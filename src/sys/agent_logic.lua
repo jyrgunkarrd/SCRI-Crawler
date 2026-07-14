@@ -668,28 +668,39 @@ function agent_logic.getSelectedStats()
     }
 end
 
-function agent_logic.ensureRuntimeStats(agent)
+function agent_logic.ensureRuntimeStats(agent, options)
     getRuntimeStat(agent, "ap")
     getRuntimeStat(agent, "hp")
     getRuntimeStat(agent, "lp")
     block_logic.clearBlock(agent)
     fate_logic.initializeFateDeck(agent)
     XP_levels.initializeAgent(agent)
-    equip_logic.initializeAgent(agent)
+    equip_logic.initializeAgent(agent, {
+        draw_card = not options or options.equipment_draw_card ~= false,
+    })
+end
+
+function agent_logic.refreshAgentAp(agent)
+    if not agent then
+        return false
+    end
+
+    local ap = getRuntimeStat(agent, "ap")
+
+    if ap.maximum <= 0 or ap.current >= ap.maximum then
+        return false
+    end
+
+    ap.current = ap.maximum
+
+    return true
 end
 
 function agent_logic.refreshAgents(room)
     local refreshed = false
 
     for _, tile in ipairs(room and room.tiles or {}) do
-        if tile.agent then
-            local ap = getRuntimeStat(tile.agent, "ap")
-
-            if ap.maximum > 0 and ap.current < ap.maximum then
-                ap.current = ap.maximum
-                refreshed = true
-            end
-        end
+        refreshed = agent_logic.refreshAgentAp(tile.agent) or refreshed
     end
 
     if refreshed then
@@ -732,6 +743,7 @@ function agent_logic.initializeActionHand(agent, action_deck_lookup, card_index,
     end
 
     options = options or {}
+    local preserved_hand = options.preserve_hand and agent.action_hand or nil
     action_deck_lookup = action_deck_lookup or getActionDeckLookup()
     card_index = card_index or getCardIndex()
 
@@ -742,7 +754,7 @@ function agent_logic.initializeActionHand(agent, action_deck_lookup, card_index,
         getActionArtLookup(agent)
     )
     agent.action_discard_pile = {}
-    agent.action_hand = {}
+    agent.action_hand = preserved_hand or {}
     burn_logic.initializeAgent(agent)
 
     if options.draw_hand ~= false then
@@ -751,12 +763,67 @@ function agent_logic.initializeActionHand(agent, action_deck_lookup, card_index,
     end
 end
 
+local function hasActionCard(pile)
+    for _, card in ipairs(pile or {}) do
+        if card.action_slot or card.action_deck_id then
+            return true
+        end
+    end
+
+    return false
+end
+
+function agent_logic.ensureActionHand(agent, options)
+    if not agent then
+        return
+    end
+
+    local has_action_deck = hasActionCard(agent.action_draw_pile)
+        or hasActionCard(agent.action_discard_pile)
+        or hasActionCard(agent.action_hand)
+
+    if not has_action_deck then
+        local initialize_options = {
+            draw_hand = options and options.draw_hand,
+            preserve_hand = true,
+        }
+
+        agent_logic.initializeActionHand(agent, nil, nil, initialize_options)
+        return
+    end
+
+    agent.action_draw_pile = agent.action_draw_pile or {}
+    agent.action_discard_pile = agent.action_discard_pile or {}
+    agent.action_hand = agent.action_hand or {}
+
+    if options and options.draw_hand and not hasActionCard(agent.action_hand) then
+        burn_logic.drawCards(agent, nil, ACTION_HAND_SIZE)
+        equip_logic.drawFromEquippedLexDecks(agent)
+    end
+end
+
+function agent_logic.prepareDecksForStateTransition(agent)
+    if not agent then
+        return
+    end
+
+    equip_logic.reshuffleHandCardsIntoDecks(agent)
+    action_deck_logic.reshuffleHandAndDiscardIntoDrawPile(agent)
+    fate_logic.reshuffleDiscardIntoDeck(agent)
+end
+
 function agent_logic.initializeActionHands(agents)
     local action_deck_lookup = getActionDeckLookup()
     local card_index = getCardIndex()
 
     for _, agent in ipairs(agents or {}) do
         agent_logic.initializeActionHand(agent, action_deck_lookup, card_index)
+    end
+end
+
+function agent_logic.prepareActionHands(agents)
+    for _, agent in ipairs(agents or {}) do
+        agent_logic.ensureActionHand(agent, { draw_hand = true })
     end
 end
 

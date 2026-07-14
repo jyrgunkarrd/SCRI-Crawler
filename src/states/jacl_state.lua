@@ -1,6 +1,7 @@
 local image_loader = require("src.assets.image_loader")
 local jacl_definitions = require("data.jacl")
 local agent_uix = require("src.rndr.agent_uix")
+local agent_logic = require("src.sys.agent_logic")
 local sfx_logic = require("src.sys.sfx_logic")
 local strike_prep = require("src.sys.JACL_strk_prep")
 local officers = require("src.sys.officers")
@@ -8,6 +9,8 @@ local map_preview = require("src.rndr.jacl_map_preview")
 local agent_roster = require("src.rndr.jacl_agent_roster")
 local strike_uix = require("src.rndr.jacl_strike_prep_uix")
 local cache_rail = require("src.rndr.jacl_equipment_cache_rail")
+local rumor_missions = require("src.sys.rumor_missions")
+local rumor_chain = require("src.rndr.jacl_rumor_mission_chain")
 
 local jacl_state = {
     name = "JACL",
@@ -37,6 +40,8 @@ local jacl_state = {
     launch_button_rect = nil,
     strike_button_rect = nil,
     jacl_backing_rect = nil,
+    rumor_mission_scroll_y = 0,
+    rumor_map_preview_cache = {},
 }
 
 local BACKGROUND_COLOR = { 0.018, 0.018, 0.022, 1 }
@@ -147,8 +152,42 @@ local function launchStrike()
     end
 
     local states_core = require("src.states.states_core")
+    local launch_options = strike_uix.buildLaunchOptions("assets/maps/devmap.lua")
 
-    states_core.switch("mission", strike_uix.buildLaunchOptions("assets/maps/devmap.lua"))
+    sfx_logic.playNamed("strk_launch")
+    rumor_missions.attachToLaunch(launch_options, strike_prep.getSlots())
+    states_core.switch("mission", launch_options)
+end
+
+local function getStrikePreviewOptions(state, roster_theme, rumor_entries)
+    return {
+        font = state.roster_font,
+        title_color = roster_theme.title_color,
+        outline_color = roster_theme.outline_color,
+        roster_y = roster_theme.y,
+        roster_h = roster_theme.h,
+        right_reserve = rumor_chain.getPreviewReserve(rumor_entries),
+    }
+end
+
+local function getRumorMapPreview(state, entry)
+    local path = entry and entry.target and entry.target.path
+
+    if not path then
+        return nil
+    end
+
+    local cached = state.rumor_map_preview_cache[path]
+
+    if cached ~= nil then
+        return cached or nil
+    end
+
+    local room = map_preview.load(path)
+
+    state.rumor_map_preview_cache[path] = room or false
+
+    return room
 end
 
 function jacl_state:enter()
@@ -156,6 +195,7 @@ function jacl_state:enter()
     love.graphics.setFont(love.graphics.newFont("assets/fonts/Furore.otf", 20))
     love.graphics.setBackgroundColor(BACKGROUND_COLOR)
     agent_uix.setModalOffset(JACL_MODAL_OFFSET_Y)
+    agent_uix.setEquipmentCardDrawEnabled(false)
     strike_prep.exit()
 
     self.officer_font = love.graphics.newFont("assets/fonts/Furore.otf", 14)
@@ -165,6 +205,8 @@ function jacl_state:enter()
     self.strike_button_rect = nil
     self.launch_button_rect = nil
     self.jacl_backing_rect = nil
+    self.rumor_mission_scroll_y = 0
+    self.rumor_map_preview_cache = {}
     self.dev_map_preview_room = map_preview.load("assets/maps/devmap.lua")
     self.left_officers = officers.loadByIds(OFFICER_LEFT_IDS)
     self.right_officers = officers.loadByIds(OFFICER_RIGHT_IDS)
@@ -187,8 +229,16 @@ function jacl_state:enter()
     self.image = image_loader.newImage(self.image_path)
 end
 
-function jacl_state:leave()
+function jacl_state:leave(next_state)
     agent_uix.setModalOffset(0)
+    agent_uix.setEquipmentCardDrawEnabled(true)
+
+    if next_state == "mission" then
+        for _, agent in ipairs(self.roster_agents or {}) do
+            agent_logic.prepareDecksForStateTransition(agent)
+        end
+    end
+
     strike_prep.exit()
 end
 
@@ -222,12 +272,15 @@ function jacl_state:draw()
     local roster_theme = agent_roster.getTheme()
 
     if strike_prep.isActive() then
-        map_preview.draw(self, self.dev_map_preview_room, screen_h, {
+        local rumor_entries = rumor_missions.generate(strike_prep.getSlots())
+        local preview_options = getStrikePreviewOptions(self, roster_theme, rumor_entries)
+        local hovered_rumor = rumor_chain.getHovered(self, rumor_entries, screen_h, preview_options)
+        local preview_room = getRumorMapPreview(self, hovered_rumor) or self.dev_map_preview_room
+
+        map_preview.draw(self, preview_room, screen_h, preview_options)
+        rumor_chain.draw(self, rumor_entries, screen_h, preview_options, {
             font = self.roster_font,
-            title_color = roster_theme.title_color,
             outline_color = roster_theme.outline_color,
-            roster_y = roster_theme.y,
-            roster_h = roster_theme.h,
         })
     else
         drawOfficerColumn(self.left_officers, left_column_x, screen_h, self.officer_font)
@@ -418,6 +471,16 @@ function jacl_state:wheelmoved(x, y)
 
         agent_uix.wheelmoved(x, y)
         return
+    end
+
+    if strike_prep.isActive() then
+        local rumor_entries = rumor_missions.generate(strike_prep.getSlots())
+        local roster_theme = agent_roster.getTheme()
+        local preview_options = getStrikePreviewOptions(self, roster_theme, rumor_entries)
+
+        if rumor_chain.wheelmoved(self, rumor_entries, love.graphics.getHeight(), preview_options, x, y) then
+            return
+        end
     end
 
     agent_roster.wheelmoved(self, x, y)

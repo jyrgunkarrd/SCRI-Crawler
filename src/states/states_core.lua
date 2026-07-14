@@ -14,13 +14,24 @@ local phase_rules = require("src.sys.phase_rules")
 local sfx_logic = require("src.sys.sfx_logic")
 local enemy_ai = require("src.sys.enemy_ai")
 local door_room_logic = require("src.sys.door_room_logic")
+local mission_completion = require("src.sys.mission_completion")
+local rumor_missions = require("src.sys.rumor_missions")
 local jacl_state = require("src.states.jacl_state")
 
 local states_core = {
     states = {},
     current = nil,
     current_name = nil,
+    transition = nil,
 }
+
+local unpackValues = table.unpack or unpack
+local SHUTTER_CLOSE_SECONDS = 0.20
+local SHUTTER_HOLD_SECONDS = 0.10
+local SHUTTER_OPEN_SECONDS = 0.20
+local SHUTTER_COLOR = { 0, 0, 0, 1 }
+local SHUTTER_ACCENT_COLOR = { 165 / 255, 0, 74 / 255, 1 }
+local SHUTTER_TEXT_COLOR = { 1, 1, 1, 1 }
 
 local DEV_MAP_CONFIG_PATH = "data.dev_map"
 local DEV_SQUAD_PATH = "data.dev_squad"
@@ -29,7 +40,17 @@ local AGENTS_PATH = "data.agents"
 local mission = {
     name = "mission",
     room = nil,
+    agents = {},
+    completion_tracker = nil,
+    completion_modal_open = false,
 }
+
+local MISSION_COMPLETE_BACKDROP_COLOR = { 0, 0, 0, 0.80 }
+local MISSION_COMPLETE_FILL_COLOR = { 0, 0, 0, 0.96 }
+local MISSION_COMPLETE_BORDER_COLOR = { 1, 1, 1, 1 }
+local MISSION_COMPLETE_TEXT_COLOR = { 1, 1, 1, 1 }
+local MISSION_COMPLETE_BOX_W = 460
+local MISSION_COMPLETE_BOX_H = 104
 
 local function playPhaseStartSfx(phase)
     if phase == phase_rules.PHASE_MISSION then
@@ -139,7 +160,7 @@ local function populatePlayerAgents(target_room, agents_by_start)
             end
         end
 
-        agent_logic.initializeActionHands(placed_agents)
+        agent_logic.prepareActionHands(placed_agents)
         return
     end
 
@@ -161,7 +182,7 @@ local function populatePlayerAgents(target_room, agents_by_start)
         end
     end
 
-    agent_logic.initializeActionHands(placed_agents)
+    agent_logic.prepareActionHands(placed_agents)
 end
 
 local function getDevMapPath()
@@ -262,10 +283,25 @@ local function triggerPlayerRoomSpawns(target_room)
     end
 end
 
+local function collectMissionAgents(room)
+    local agents = {}
+
+    for _, tile in ipairs(room and room.tiles or {}) do
+        if tile.agent then
+            agents[#agents + 1] = tile.agent
+        end
+    end
+
+    return agents
+end
+
 local function resetMission()
     mission.room = loadMapFile(mission.launch_options)
     event_spawn.initialize(mission.room)
+    mission.completion_tracker = mission_completion.initialize(mission.room)
+    mission.completion_modal_open = false
     triggerPlayerRoomSpawns(mission.room)
+    mission.agents = collectMissionAgents(mission.room)
     agent_logic.clearSelection()
     deck_hand_vis.reload()
     map_tiles.clearAnimations()
@@ -282,7 +318,10 @@ function mission:enter(_, launch_options)
 
     self.room = loadMapFile(self.launch_options)
     event_spawn.initialize(self.room)
+    self.completion_tracker = mission_completion.initialize(self.room)
+    self.completion_modal_open = false
     triggerPlayerRoomSpawns(self.room)
+    self.agents = collectMissionAgents(self.room)
     agent_logic.clearSelection()
     deck_hand_vis.load()
     map_tiles.clearAnimations()
@@ -290,7 +329,22 @@ function mission:enter(_, launch_options)
     camera.reset()
 end
 
+function mission:leave(next_state)
+    if next_state ~= "JACL" then
+        return
+    end
+
+    for _, agent in ipairs(self.agents or {}) do
+        agent_logic.prepareDecksForStateTransition(agent)
+        agent_logic.refreshAgentAp(agent)
+    end
+end
+
 function mission:update(dt)
+    if self.completion_modal_open then
+        return
+    end
+
     camera.update(dt, self.room)
     local camera_x, camera_y = camera.getOffset()
     local mission_phase = phase_rules.isMissionPhase()
@@ -302,8 +356,18 @@ function mission:update(dt)
 
     agent_logic.update(dt, self.room, camera_x, camera_y, agent_uix.isModalOpen() or not mission_phase)
     triggerPlayerRoomSpawns(self.room)
+    mission_completion.update(self.completion_tracker, self.room)
     map_tiles.update(dt)
     action_vis.update(dt)
+
+    if mission_completion.update(self.completion_tracker, self.room) and not action_vis.isActive() then
+        card_play.cancelDrag()
+        agent_logic.clearSelection()
+        sfx_logic.playNamed("missioncomplete")
+        self.completion_modal_open = true
+        return
+    end
+
     enemy_ai.update(dt)
 
     if not action_vis.isActive() and not agent_logic.getMovementAnimation() and not enemy_ai.isMoving() then
@@ -353,6 +417,32 @@ function mission:update(dt)
             end
         end
     end
+
+end
+
+local function drawMissionCompleteModal()
+    local screen_w = love.graphics.getWidth()
+    local screen_h = love.graphics.getHeight()
+    local box_x = (screen_w - MISSION_COMPLETE_BOX_W) / 2
+    local box_y = (screen_h - MISSION_COMPLETE_BOX_H) / 2
+    local font = love.graphics.getFont()
+    local label = "MISSION COMPLETE"
+
+    love.graphics.setColor(MISSION_COMPLETE_BACKDROP_COLOR)
+    love.graphics.rectangle("fill", 0, 0, screen_w, screen_h)
+    love.graphics.setColor(MISSION_COMPLETE_FILL_COLOR)
+    love.graphics.rectangle("fill", box_x, box_y, MISSION_COMPLETE_BOX_W, MISSION_COMPLETE_BOX_H)
+    love.graphics.setColor(MISSION_COMPLETE_BORDER_COLOR)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", box_x, box_y, MISSION_COMPLETE_BOX_W, MISSION_COMPLETE_BOX_H)
+    love.graphics.setLineWidth(1)
+    love.graphics.setColor(MISSION_COMPLETE_TEXT_COLOR)
+    love.graphics.print(
+        label,
+        box_x + (MISSION_COMPLETE_BOX_W - font:getWidth(label)) / 2,
+        box_y + (MISSION_COMPLETE_BOX_H - font:getHeight()) / 2
+    )
+    love.graphics.setColor(1, 1, 1, 1)
 end
 
 function mission:draw()
@@ -408,9 +498,17 @@ function mission:draw()
     end
 
     action_vis.draw()
+
+    if self.completion_modal_open then
+        drawMissionCompleteModal()
+    end
 end
 
 function mission:keypressed(key)
+    if self.completion_modal_open then
+        return
+    end
+
     if key == "escape" then
         if card_play.isDragging() then
             card_play.cancelDrag()
@@ -436,6 +534,20 @@ function mission:keypressed(key)
 end
 
 function mission:mousepressed(x, y, button)
+    if self.completion_modal_open then
+        if button == 1 then
+            local next_launch = rumor_missions.advanceLaunch(self.launch_options)
+
+            if next_launch then
+                states_core.restart("mission", next_launch)
+            else
+                states_core.switch("JACL")
+            end
+        end
+
+        return
+    end
+
     if agent_uix.mousepressed(x, y, button) then
         return
     end
@@ -456,6 +568,10 @@ function mission:mousepressed(x, y, button)
 end
 
 function mission:mousereleased(x, y, button)
+    if self.completion_modal_open then
+        return
+    end
+
     local camera_x, camera_y = camera.getOffset()
 
     if agent_uix.mousereleased(x, y, button) then
@@ -472,10 +588,18 @@ function mission:mousereleased(x, y, button)
 end
 
 function mission:mousemoved(_, _, dx, dy)
+    if self.completion_modal_open then
+        return
+    end
+
     camera.mousemoved(dx, dy, self.room)
 end
 
 function mission:wheelmoved(x, y)
+    if self.completion_modal_open then
+        return
+    end
+
     if agent_uix.isModalOpen() then
         agent_uix.wheelmoved(x, y)
     elseif phase_rules.isMissionPhase() then
@@ -495,7 +619,7 @@ function states_core.register(name, state)
     states_core.states[name] = state
 end
 
-function states_core.switch(name, ...)
+local function performStateSwitch(name, args, arg_count)
     local next_state = states_core.states[name]
 
     if not next_state then
@@ -511,8 +635,137 @@ function states_core.switch(name, ...)
     states_core.current_name = name
 
     if next_state.enter then
-        next_state:enter(previous_name, ...)
+        next_state:enter(previous_name, unpackValues(args or {}, 1, arg_count or 0))
     end
+end
+
+local function getTransitionLabel(from_name, to_name)
+    if from_name == "JACL" and to_name == "mission" then
+        return "STRIKE DEPLOYED"
+    elseif from_name == "mission" and to_name == "mission" then
+        return "NEXT MISSION"
+    elseif from_name == "mission" and to_name == "JACL" then
+        return "RETURNING TO JACL"
+    end
+
+    return ""
+end
+
+local function startTransition(name, allow_same_state, ...)
+    if not states_core.current then
+        performStateSwitch(name, { ... }, select("#", ...))
+        return true
+    end
+
+    if states_core.transition or (name == states_core.current_name and not allow_same_state) then
+        return false
+    end
+
+    if states_core.current_name == "mission" and name == "JACL" then
+        sfx_logic.playNamed("missionend")
+    end
+
+    states_core.transition = {
+        phase = "closing",
+        elapsed = 0,
+        next_name = name,
+        args = { ... },
+        arg_count = select("#", ...),
+        label = getTransitionLabel(states_core.current_name, name),
+    }
+
+    return true
+end
+
+function states_core.switch(name, ...)
+    return startTransition(name, false, ...)
+end
+
+function states_core.restart(name, ...)
+    return startTransition(name, true, ...)
+end
+
+local function updateTransition(dt)
+    local transition = states_core.transition
+
+    if not transition then
+        return
+    end
+
+    transition.elapsed = transition.elapsed + dt
+
+    if transition.phase == "closing" and transition.elapsed >= SHUTTER_CLOSE_SECONDS then
+        performStateSwitch(transition.next_name, transition.args, transition.arg_count)
+        transition.phase = "holding"
+        transition.elapsed = 0
+    elseif transition.phase == "holding" and transition.elapsed >= SHUTTER_HOLD_SECONDS then
+        transition.phase = "opening"
+        transition.elapsed = 0
+    elseif transition.phase == "opening" and transition.elapsed >= SHUTTER_OPEN_SECONDS then
+        states_core.transition = nil
+    end
+end
+
+local function getShutterCoverage(transition)
+    if transition.phase == "closing" then
+        return math.min(1, transition.elapsed / SHUTTER_CLOSE_SECONDS)
+    elseif transition.phase == "opening" then
+        return 1 - math.min(1, transition.elapsed / SHUTTER_OPEN_SECONDS)
+    end
+
+    return 1
+end
+
+local function drawTransition()
+    local transition = states_core.transition
+
+    if not transition then
+        return
+    end
+
+    local screen_w = love.graphics.getWidth()
+    local screen_h = love.graphics.getHeight()
+    local coverage = getShutterCoverage(transition)
+    local panel_h = screen_h * 0.5 * coverage
+    local top_edge = panel_h
+    local bottom_edge = screen_h - panel_h
+
+    love.graphics.setColor(SHUTTER_COLOR)
+    love.graphics.rectangle("fill", 0, 0, screen_w, panel_h)
+    love.graphics.rectangle("fill", 0, bottom_edge, screen_w, panel_h)
+
+    if coverage > 0 then
+        love.graphics.setColor(SHUTTER_ACCENT_COLOR)
+        love.graphics.setLineWidth(3)
+        love.graphics.line(0, top_edge, screen_w, top_edge)
+        love.graphics.line(0, bottom_edge, screen_w, bottom_edge)
+        love.graphics.setLineWidth(1)
+    end
+
+    if transition.label ~= "" and coverage > 0.65 then
+        local font = love.graphics.getFont()
+        local alpha = math.min(1, (coverage - 0.65) / 0.35)
+        local text_w = font:getWidth(transition.label)
+        local text_h = font:getHeight()
+        local text_x = (screen_w - text_w) / 2
+        local text_y = (screen_h - text_h) / 2
+
+        love.graphics.setColor(0, 0, 0, alpha)
+        love.graphics.rectangle("fill", text_x - 14, text_y - 8, text_w + 28, text_h + 16)
+        love.graphics.setColor(
+            SHUTTER_TEXT_COLOR[1],
+            SHUTTER_TEXT_COLOR[2],
+            SHUTTER_TEXT_COLOR[3],
+            alpha
+        )
+        love.graphics.print(
+            transition.label,
+            text_x,
+            text_y
+        )
+    end
+
+    love.graphics.setColor(1, 1, 1, 1)
 end
 
 function states_core.getCurrentName()
@@ -531,45 +784,73 @@ function states_core.update(dt)
     if states_core.current and states_core.current.update then
         states_core.current:update(dt)
     end
+
+    updateTransition(dt)
 end
 
 function states_core.draw()
     if states_core.current and states_core.current.draw then
         states_core.current:draw()
     end
+
+    drawTransition()
 end
 
 function states_core.keypressed(...)
+    if states_core.transition then
+        return
+    end
+
     if states_core.current and states_core.current.keypressed then
         states_core.current:keypressed(...)
     end
 end
 
 function states_core.textinput(...)
+    if states_core.transition then
+        return
+    end
+
     if states_core.current and states_core.current.textinput then
         states_core.current:textinput(...)
     end
 end
 
 function states_core.mousepressed(...)
+    if states_core.transition then
+        return
+    end
+
     if states_core.current and states_core.current.mousepressed then
         states_core.current:mousepressed(...)
     end
 end
 
 function states_core.mousereleased(...)
+    if states_core.transition then
+        return
+    end
+
     if states_core.current and states_core.current.mousereleased then
         states_core.current:mousereleased(...)
     end
 end
 
 function states_core.mousemoved(...)
+    if states_core.transition then
+        return
+    end
+
     if states_core.current and states_core.current.mousemoved then
         states_core.current:mousemoved(...)
     end
 end
 
 function states_core.wheelmoved(...)
+    if states_core.transition then
+        return
+    end
+
     if states_core.current and states_core.current.wheelmoved then
         states_core.current:wheelmoved(...)
     end

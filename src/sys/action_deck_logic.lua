@@ -10,6 +10,14 @@ local BURN_SLOT_COUNTS = {
 
 local TOTAL_SLOT_COUNT = 60
 
+local function shuffle(cards)
+    for index = #cards, 2, -1 do
+        local swap_index = love.math.random(index)
+
+        cards[index], cards[swap_index] = cards[swap_index], cards[index]
+    end
+end
+
 local function getSlotKey(slot)
     if slot == nil then
         return nil
@@ -160,7 +168,7 @@ function action_deck_logic.discardHand(agent, options)
     for index = #agent.action_hand, 1, -1 do
         local card = agent.action_hand[index]
 
-        if card and card.lexurgy and not options.include_lexurgy then
+        if card and card.lex_source and not options.include_lexurgy then
             -- Kept Lexurgy cards stay in hand across normal end-of-round discard.
         elseif not action_deck_logic.isCardFatigued(agent, card) then
             agent.action_discard_pile[#agent.action_discard_pile + 1] = table.remove(agent.action_hand, index)
@@ -187,6 +195,58 @@ function action_deck_logic.discardFromHand(agent, hand_index)
     end
 
     return card
+end
+
+function action_deck_logic.reshuffleDiscardIntoDrawPile(agent)
+    if not agent then
+        return false
+    end
+
+    agent.action_draw_pile = agent.action_draw_pile or {}
+    agent.action_discard_pile = agent.action_discard_pile or {}
+
+    if #agent.action_discard_pile == 0 then
+        return false
+    end
+
+    while #agent.action_discard_pile > 0 do
+        agent.action_draw_pile[#agent.action_draw_pile + 1] = table.remove(agent.action_discard_pile)
+    end
+
+    shuffle(agent.action_draw_pile)
+
+    return true
+end
+
+function action_deck_logic.reshuffleHandAndDiscardIntoDrawPile(agent)
+    if not agent then
+        return false
+    end
+
+    agent.action_draw_pile = agent.action_draw_pile or {}
+    agent.action_discard_pile = agent.action_discard_pile or {}
+    agent.action_hand = agent.action_hand or {}
+    local returned_card = false
+
+    for index = #agent.action_hand, 1, -1 do
+        local card = agent.action_hand[index]
+
+        if not card.lex_source then
+            agent.action_draw_pile[#agent.action_draw_pile + 1] = table.remove(agent.action_hand, index)
+            returned_card = true
+        end
+    end
+
+    while #agent.action_discard_pile > 0 do
+        agent.action_draw_pile[#agent.action_draw_pile + 1] = table.remove(agent.action_discard_pile)
+        returned_card = true
+    end
+
+    if returned_card then
+        shuffle(agent.action_draw_pile)
+    end
+
+    return returned_card
 end
 
 function action_deck_logic.getTotalSlotCount()

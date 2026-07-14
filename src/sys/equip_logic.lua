@@ -128,7 +128,7 @@ local function cloneLexurgyCard(card, item)
     end
 
     clone.base_id = card and card.id or nil
-    clone.lexurgy = true
+    clone.lexurgy = card and card.lexurgy == true or nil
     clone.lex_source = item
 
     return clone
@@ -364,7 +364,7 @@ function equip_logic.moveToInventory(agent, item, col, row)
     return true
 end
 
-function equip_logic.moveToSlot(agent, item, slot_index)
+function equip_logic.moveToSlot(agent, item, slot_index, options)
     if not equip_logic.canPlaceInSlot(agent, item, slot_index) then
         return false
     end
@@ -390,7 +390,9 @@ function equip_logic.moveToSlot(agent, item, slot_index)
             shuffle(item.lex_draw_pile or {})
         end
 
-        equip_logic.drawLexurgyCard(agent, item)
+        if not options or options.draw_card ~= false then
+            equip_logic.drawLexurgyCard(agent, item)
+        end
     end
 
     return true
@@ -402,7 +404,7 @@ end
 
 function equip_logic.hasLexurgyCardInHand(agent)
     for _, card in ipairs(agent and agent.action_hand or {}) do
-        if card.lexurgy then
+        if card.lex_source then
             return true
         end
     end
@@ -416,7 +418,7 @@ function equip_logic.hasLexurgyCardFromItemInHand(agent, item)
     end
 
     for _, card in ipairs(agent.action_hand or {}) do
-        if card.lexurgy and card.lex_source == item then
+        if card.lex_source == item then
             return true
         end
     end
@@ -473,6 +475,33 @@ function equip_logic.drawFromEquippedLexDecks(agent)
     end
 
     return first_drawn
+end
+
+function equip_logic.reshuffleHandCardsIntoDecks(agent)
+    if not agent or not agent.action_hand then
+        return false
+    end
+
+    local changed_sources = {}
+    local returned_card = false
+
+    for index = #agent.action_hand, 1, -1 do
+        local card = agent.action_hand[index]
+        local source = card and card.lex_source or nil
+
+        if source then
+            source.lex_draw_pile = source.lex_draw_pile or {}
+            source.lex_draw_pile[#source.lex_draw_pile + 1] = table.remove(agent.action_hand, index)
+            changed_sources[source] = true
+            returned_card = true
+        end
+    end
+
+    for source in pairs(changed_sources) do
+        shuffle(source.lex_draw_pile)
+    end
+
+    return returned_card
 end
 
 function equip_logic.getEquippedLexurgyItems(agent)
@@ -548,7 +577,7 @@ function equip_logic.getLexDeckDefinitionCards(item)
 end
 
 function equip_logic.discardLexurgyCard(card)
-    if not card or not card.lexurgy or not card.lex_source then
+    if not card or not card.lex_source then
         return false
     end
 
@@ -567,7 +596,7 @@ function equip_logic.discardLexurgyCardFromHand(agent, hand_index)
 
     local card = agent.action_hand[hand_index]
 
-    if not card or not card.lexurgy then
+    if not card or not card.lex_source then
         return nil
     end
 
@@ -589,9 +618,9 @@ local function placeInFirstInventorySpace(agent, item)
     return false
 end
 
-local function placeInFirstValidSlot(agent, item)
+local function placeInFirstValidSlot(agent, item, options)
     for slot_index = 1, #(agent and agent.slots or {}) do
-        if equip_logic.moveToSlot(agent, item, slot_index) then
+        if equip_logic.moveToSlot(agent, item, slot_index, options) then
             return true
         end
     end
@@ -599,7 +628,7 @@ local function placeInFirstValidSlot(agent, item)
     return false
 end
 
-local function addStartingEquipment(agent, equip_id, prefer_slot)
+local function addStartingEquipment(agent, equip_id, prefer_slot, options)
     local definition = equip_logic.getDefinition(equip_id)
 
     if not definition then
@@ -609,14 +638,14 @@ local function addStartingEquipment(agent, equip_id, prefer_slot)
 
     local item = cloneItem(definition)
 
-    if prefer_slot and placeInFirstValidSlot(agent, item) then
+    if prefer_slot and placeInFirstValidSlot(agent, item, options) then
         return
     end
 
     placeInFirstInventorySpace(agent, item)
 end
 
-function equip_logic.initializeAgent(agent)
+function equip_logic.initializeAgent(agent, options)
     if not agent then
         return
     end
@@ -628,11 +657,11 @@ function equip_logic.initializeAgent(agent)
     ensureRuntime(agent)
 
     for _, equip_id in ipairs(agent.start_equip_slot or {}) do
-        addStartingEquipment(agent, equip_id, true)
+        addStartingEquipment(agent, equip_id, true, options)
     end
 
     for _, equip_id in ipairs(agent.start_equip or {}) do
-        addStartingEquipment(agent, equip_id, false)
+        addStartingEquipment(agent, equip_id, false, options)
     end
 end
 

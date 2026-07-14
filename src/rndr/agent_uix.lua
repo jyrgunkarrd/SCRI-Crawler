@@ -133,6 +133,7 @@ local block_icon_font
 local modal_unit = nil
 local modal_kind = nil
 local modal_offset_y = 0
+agent_uix.equipment_card_draw_enabled = true
 local equip_drag = nil
 local pinned_equipment = nil
 local hovered_preview_card_key = nil
@@ -1599,6 +1600,10 @@ function agent_uix.setModalOffset(y)
     modal_offset_y = tonumber(y) or 0
 end
 
+function agent_uix.setEquipmentCardDrawEnabled(enabled)
+    agent_uix.equipment_card_draw_enabled = enabled ~= false
+end
+
 function agent_uix.openModal(unit, kind)
     if not unit then
         return false
@@ -1638,7 +1643,9 @@ function agent_uix.placeItemInOpenModalSlot(item, x, y)
 
     for _, rect in ipairs(getEquipSlotRects(layout)) do
         if pointInRect(x, y, rect.x, rect.y, rect.w, rect.h) then
-            return equip_logic.moveToSlot(modal_unit, item, rect.index)
+            return equip_logic.moveToSlot(modal_unit, item, rect.index, {
+                draw_card = agent_uix.equipment_card_draw_enabled,
+            })
         end
     end
 
@@ -1819,7 +1826,9 @@ function agent_uix.mousereleased(x, y, button)
 
     for _, rect in ipairs(getEquipSlotRects(layout)) do
         if pointInRect(x, y, rect.x, rect.y, rect.w, rect.h) then
-            if equip_logic.moveToSlot(drag.agent, drag.item, rect.index) then
+            if equip_logic.moveToSlot(drag.agent, drag.item, rect.index, {
+                draw_card = agent_uix.equipment_card_draw_enabled,
+            }) then
                 sfx_logic.playNamed("equip")
             end
             return true

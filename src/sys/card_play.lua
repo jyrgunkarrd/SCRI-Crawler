@@ -383,7 +383,7 @@ end
 local function removeCardFromHand(agent, hand_index)
     local card = agent and agent.action_hand and agent.action_hand[hand_index]
 
-    if card and card.lexurgy then
+    if card and card.lex_source then
         return equip_logic.discardLexurgyCardFromHand(agent, hand_index)
     end
 

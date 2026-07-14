@@ -8,6 +8,7 @@ local lex_cards = {
         name = "Incinerate",
         cost = 1,
         rarity = "lex",
+        lexurgy = true,
         textbox = "Deal 6 damage to an enemy.\n\nRange 4.",
         tags = {
 

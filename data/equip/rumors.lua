@@ -9,6 +9,7 @@ local rumors = {
         name = "The Eight Songs",
         inv_size = {H = 2, W = 2},
         category = "rumor",
+        mission = "map_004",
 
     },
 
@@ -18,6 +19,7 @@ local rumors = {
         name = "Fuji Masakage's Diary",
         inv_size = {H = 2, W = 2},
         category = "rumor", 
+        mission = "map_005",
 
     },
 

@@ -85,13 +85,15 @@ function map_preview.load(path)
     }
 end
 
-local function getLayout(state, screen_h, options)
+function map_preview.getLayout(state, screen_h, options)
+    options = options or {}
     local roster_y = options.roster_y or 14
     local roster_h = options.roster_h or 168
     local label_y = roster_y + roster_h + 22
     local y = label_y + LABEL_H + LABEL_GAP
     local h = math.max(0, screen_h - y - 54)
-    local max_w = state and state.jacl_backing_rect and state.jacl_backing_rect.x - PREVIEW_X - 24
+    local max_w = state and state.jacl_backing_rect
+        and state.jacl_backing_rect.x - PREVIEW_X - 24 - (options.right_reserve or 0)
         or PREVIEW_W
     local w = math.max(0, math.min(PREVIEW_W, max_w))
 
@@ -120,7 +122,7 @@ function map_preview.draw(state, room, screen_h, options)
 
     options = options or {}
 
-    local layout = getLayout(state, screen_h, options)
+    local layout = map_preview.getLayout(state, screen_h, options)
 
     if layout.w <= 0 or layout.h <= 0 then
         return
