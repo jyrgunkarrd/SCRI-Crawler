@@ -108,6 +108,8 @@ local function cloneItem(definition)
         inv_size = width * height,
         inv_w = width,
         inv_h = height,
+        mult = math.max(1, math.floor(tonumber(definition.mult) or 1)),
+        luggage_filled = 0,
         lock_in = definition.lock_in == true,
         lex_deck_ids = definition.lex_deck or {},
         lex_draw_pile = {},

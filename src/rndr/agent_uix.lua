@@ -6,7 +6,7 @@ local action_deck_viewer = require("src.rndr.action_deck_viewer")
 local burn_palette = require("data.burn_palette")
 local block_logic = require("src.sys.block_logic")
 local XP_levels = require("src.sys.XP_levels")
-local fate_logic = require("src.sys.fate_logic")
+local luggage = require("src.sys.luggage")
 local sfx_logic = require("src.sys.sfx_logic")
 local equip_logic = require("src.sys.equip_logic")
 local card_play = require("src.sys.card_play")
@@ -1034,12 +1034,17 @@ local function drawModalAgentStatLabels(agent, layout)
 end
 
 local function drawEquipmentItem(item, x, y, w, h, alpha)
-    local image = getEquipImage(item)
+    local image = not luggage.isLuggage(item) and getEquipImage(item) or nil
 
     love.graphics.setColor(0.015, 0.014, 0.012, alpha or 1)
     love.graphics.rectangle("fill", x, y, w, h)
 
-    if image then
+    if luggage.draw(item, x, y, w, h, {
+        alpha = alpha or 1,
+        font = love.graphics.getFont(),
+    }) then
+        -- Luggage uses a generated inventory-footprint grid instead of image art.
+    elseif image then
         local scale = math.min(w / image:getWidth(), h / image:getHeight())
 
         love.graphics.setColor(1, 1, 1, alpha or 1)
@@ -1178,7 +1183,7 @@ local function drawEquipmentHoverPreview(item, layout)
 
     local preview = getEquipmentPreviewLayout(layout)
     local previous_font = love.graphics.getFont()
-    local image = getEquipImage(item)
+    local image = not luggage.isLuggage(item) and getEquipImage(item) or nil
     local content_x = preview.content_x
     local content_w = preview.content_w
     local cursor_y = preview.content_y
@@ -1201,7 +1206,11 @@ local function drawEquipmentHoverPreview(item, layout)
     love.graphics.setColor(MODAL_BORDER_COLOR)
     love.graphics.rectangle("line", image_x, cursor_y, EQUIP_PREVIEW_IMAGE_SIZE, EQUIP_PREVIEW_IMAGE_SIZE)
 
-    if image then
+    if luggage.draw(item, image_x, cursor_y, EQUIP_PREVIEW_IMAGE_SIZE, EQUIP_PREVIEW_IMAGE_SIZE, {
+        font = previous_font,
+    }) then
+        -- Luggage uses a generated inventory-footprint grid instead of image art.
+    elseif image then
         local scale = math.min(EQUIP_PREVIEW_IMAGE_SIZE / image:getWidth(), EQUIP_PREVIEW_IMAGE_SIZE / image:getHeight())
 
         love.graphics.setColor(1, 1, 1, 1)

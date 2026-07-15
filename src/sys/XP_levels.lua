@@ -1,4 +1,5 @@
 local sfx_logic = require("src.sys.sfx_logic")
+local luggage = require("src.sys.luggage")
 
 local XP_levels = {}
 
@@ -274,6 +275,7 @@ function XP_levels.addXp(agent, amount)
     end
 
     local xp = math.max(0, math.floor(tonumber(amount) or 0))
+    local requested_xp = xp
     local levels_gained = 0
 
     while xp > 0 and agent.level < MAX_LEVEL do
@@ -302,6 +304,8 @@ function XP_levels.addXp(agent, amount)
     if levels_gained > 0 then
         sfx_logic.playNamed("lvlup")
     end
+
+    luggage.captureXp(agent, requested_xp - xp)
 
     return levels_gained
 end

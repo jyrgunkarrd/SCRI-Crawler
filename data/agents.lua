@@ -59,6 +59,15 @@ local agents = {
 
             },
 
+            luggage = {
+
+                "clone",
+                "brief",
+                "truck",
+
+            },
+
+
         },
 
     },

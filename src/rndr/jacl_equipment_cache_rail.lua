@@ -1,6 +1,7 @@
 local image_loader = require("src.assets.image_loader")
 local equip_index = require("data.equip.index")
 local equip_logic = require("src.sys.equip_logic")
+local luggage = require("src.sys.luggage")
 local agent_uix = require("src.rndr.agent_uix")
 local sfx_logic = require("src.sys.sfx_logic")
 local utf8 = require("utf8")
@@ -416,14 +417,18 @@ local function drawModeButtons(state, layout)
 end
 
 local function drawDefinition(definition, item_x, layout, state)
-    local image = getEquipImage(definition)
+    local image = not luggage.isLuggage(definition) and getEquipImage(definition) or nil
     local image_x = item_x + (ITEM_W - ITEM_IMAGE_SIZE) / 2
     local image_y = layout.content_y + 8
 
     love.graphics.setColor(0.015, 0.014, 0.012, 1)
     love.graphics.rectangle("fill", image_x, image_y, ITEM_IMAGE_SIZE, ITEM_IMAGE_SIZE)
 
-    if image then
+    if luggage.draw(definition, image_x, image_y, ITEM_IMAGE_SIZE, ITEM_IMAGE_SIZE, {
+        font = state.roster_font,
+    }) then
+        -- Luggage uses a generated inventory-footprint grid instead of image art.
+    elseif image then
         local scale = math.min(ITEM_IMAGE_SIZE / image:getWidth(), ITEM_IMAGE_SIZE / image:getHeight())
 
         love.graphics.setColor(1, 1, 1, 1)
@@ -463,14 +468,19 @@ local function drawDropGhost(item, item_x, layout, state)
         return
     end
 
-    local image = getEquipImage(item)
+    local image = not luggage.isLuggage(item) and getEquipImage(item) or nil
     local image_x = item_x + (ITEM_W - ITEM_IMAGE_SIZE) / 2
     local image_y = layout.content_y + 8
 
     love.graphics.setColor(0.4078, 0.6824, 0.5804, 0.18)
     love.graphics.rectangle("fill", image_x, image_y, ITEM_IMAGE_SIZE, ITEM_IMAGE_SIZE)
 
-    if image then
+    if luggage.draw(item, image_x, image_y, ITEM_IMAGE_SIZE, ITEM_IMAGE_SIZE, {
+        alpha = 0.36,
+        font = state.roster_font,
+    }) then
+        -- Luggage uses a generated inventory-footprint grid instead of image art.
+    elseif image then
         local scale = math.min(ITEM_IMAGE_SIZE / image:getWidth(), ITEM_IMAGE_SIZE / image:getHeight())
 
         love.graphics.setColor(1, 1, 1, 0.36)
@@ -754,7 +764,7 @@ function cache_rail.drawDrag(state)
     end
 
     local mouse_x, mouse_y = love.mouse.getPosition()
-    local image = getEquipImage(drag.definition)
+    local image = not luggage.isLuggage(drag.definition) and getEquipImage(drag.definition) or nil
     local size = DRAG_IMAGE_SIZE
     local x = mouse_x - size / 2
     local y = mouse_y - size / 2
@@ -762,7 +772,12 @@ function cache_rail.drawDrag(state)
     love.graphics.setColor(0.015, 0.014, 0.012, 0.86)
     love.graphics.rectangle("fill", x, y, size, size)
 
-    if image then
+    if luggage.draw(drag.definition, x, y, size, size, {
+        alpha = 0.9,
+        font = state.roster_font,
+    }) then
+        -- Luggage uses a generated inventory-footprint grid instead of image art.
+    elseif image then
         local scale = math.min(size / image:getWidth(), size / image:getHeight())
 
         love.graphics.setColor(1, 1, 1, 0.9)

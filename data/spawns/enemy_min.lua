@@ -27,7 +27,7 @@ local enemy_min = {
         lv = 0, 
         hpgrowth = 2,
         enemy = true,
-        xpreward = 10000,
+        xpreward = 1,
 
     },
 

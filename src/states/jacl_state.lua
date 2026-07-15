@@ -2,6 +2,7 @@ local image_loader = require("src.assets.image_loader")
 local jacl_definitions = require("data.jacl")
 local agent_uix = require("src.rndr.agent_uix")
 local agent_logic = require("src.sys.agent_logic")
+local econ = require("src.sys.econ")
 local sfx_logic = require("src.sys.sfx_logic")
 local strike_prep = require("src.sys.JACL_strk_prep")
 local officers = require("src.sys.officers")
@@ -42,6 +43,9 @@ local jacl_state = {
     jacl_backing_rect = nil,
     rumor_mission_scroll_y = 0,
     rumor_map_preview_cache = {},
+    scratch_image = nil,
+    econ_font = nil,
+    strike_agent_press = nil,
 }
 
 local BACKGROUND_COLOR = { 0.018, 0.018, 0.022, 1 }
@@ -62,6 +66,17 @@ local OFFICER_ROW_GAP = 24
 local OFFICER_SIDE_MARGIN = 54
 local OFFICER_LABEL_COLOR = { 1, 1, 1, 1 }
 local JACL_MODAL_OFFSET_Y = 38
+local ECON_TILE_X = 22
+local ECON_TILE_BOTTOM = 14
+local ECON_TILE_MIN_W = 132
+local ECON_TILE_H = 58
+local ECON_TILE_PADDING = 8
+local ECON_VALUE_RIGHT_PADDING = 14
+local ECON_ICON_SIZE = 42
+local ECON_TILE_COLOR = { 0, 0, 0, 0.88 }
+local ECON_TILE_OUTLINE_COLOR = { 1, 1, 1, 0.92 }
+local ECON_TEXT_COLOR = { 0, 1, 167 / 255, 1 }
+local STRIKE_AGENT_DRAG_THRESHOLD = 6
 
 local function pointInRect(x, y, rect)
     return x >= rect.x and x <= rect.x + rect.w and y >= rect.y and y <= rect.y + rect.h
@@ -146,6 +161,42 @@ local function drawOfficerColumn(officer_list, center_x, screen_h, font)
     end
 end
 
+local function drawEconTile(state, screen_h)
+    local balance_text = tostring(econ.getBalance())
+    local balance_w = state.econ_font:getWidth(balance_text)
+    local tile_w = math.max(
+        ECON_TILE_MIN_W,
+        ECON_TILE_PADDING + ECON_ICON_SIZE + ECON_TILE_PADDING + balance_w + ECON_VALUE_RIGHT_PADDING
+    )
+    local tile_y = screen_h - ECON_TILE_BOTTOM - ECON_TILE_H
+    local icon_x = ECON_TILE_X + ECON_TILE_PADDING
+    local icon_y = tile_y + (ECON_TILE_H - ECON_ICON_SIZE) / 2
+    local text_area_x = icon_x + ECON_ICON_SIZE + ECON_TILE_PADDING
+    local text_area_w = ECON_TILE_X + tile_w - ECON_VALUE_RIGHT_PADDING - text_area_x
+    local text_x = text_area_x + (text_area_w - balance_w) / 2
+    local text_y = tile_y + (ECON_TILE_H - state.econ_font:getHeight()) / 2
+
+    love.graphics.setColor(ECON_TILE_COLOR)
+    love.graphics.rectangle("fill", ECON_TILE_X, tile_y, tile_w, ECON_TILE_H)
+    love.graphics.setColor(ECON_TILE_OUTLINE_COLOR)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", ECON_TILE_X, tile_y, tile_w, ECON_TILE_H)
+    love.graphics.setLineWidth(1)
+
+    if state.scratch_image then
+        local image_w = state.scratch_image:getWidth()
+        local image_h = state.scratch_image:getHeight()
+        local scale = math.min(ECON_ICON_SIZE / image_w, ECON_ICON_SIZE / image_h)
+
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(state.scratch_image, icon_x, icon_y, 0, scale, scale)
+    end
+
+    love.graphics.setFont(state.econ_font)
+    love.graphics.setColor(ECON_TEXT_COLOR)
+    love.graphics.print(balance_text, text_x, text_y)
+end
+
 local function launchStrike()
     if not strike_prep.hasSlottedAgents() then
         return
@@ -190,6 +241,53 @@ local function getRumorMapPreview(state, entry)
     return room
 end
 
+local function armStrikeAgentPress(state, agent, slot_index, x, y)
+    state.strike_agent_press = {
+        agent = agent,
+        slot_index = slot_index,
+        x = x,
+        y = y,
+    }
+end
+
+local function strikeAgentPressExceededThreshold(state, x, y)
+    local press = state.strike_agent_press
+
+    if not press then
+        return false
+    end
+
+    local dx = x - press.x
+    local dy = y - press.y
+
+    return dx * dx + dy * dy >= STRIKE_AGENT_DRAG_THRESHOLD * STRIKE_AGENT_DRAG_THRESHOLD
+end
+
+local function beginStrikeAgentDrag(state)
+    local press = state.strike_agent_press
+
+    if not press then
+        return false
+    end
+
+    state.strike_agent_press = nil
+
+    if press.slot_index then
+        if strike_prep.getSlots()[press.slot_index] ~= press.agent then
+            return false
+        end
+
+        return strike_prep.startDragFromSlot(press.slot_index)
+    end
+
+    return strike_prep.startDrag(press.agent)
+end
+
+local function openAgentModal(state, agent)
+    cache_rail.openForAgent(state, agent)
+    agent_uix.openModal(agent, "agent")
+end
+
 function jacl_state:enter()
     love.graphics.setDefaultFilter("linear", "linear", 1)
     love.graphics.setFont(love.graphics.newFont("assets/fonts/Furore.otf", 20))
@@ -200,6 +298,8 @@ function jacl_state:enter()
 
     self.officer_font = love.graphics.newFont("assets/fonts/Furore.otf", 14)
     self.jacl_font = love.graphics.newFont("assets/fonts/Furore.otf", 18)
+    self.econ_font = love.graphics.newFont("assets/fonts/Furore.otf", 22)
+    self.scratch_image = self.scratch_image or image_loader.newImage("assets/images/icons/scratch.webp")
     agent_roster.reset(self)
     cache_rail.reset(self)
     self.strike_button_rect = nil
@@ -207,6 +307,7 @@ function jacl_state:enter()
     self.jacl_backing_rect = nil
     self.rumor_mission_scroll_y = 0
     self.rumor_map_preview_cache = {}
+    self.strike_agent_press = nil
     self.dev_map_preview_room = map_preview.load("assets/maps/devmap.lua")
     self.left_officers = officers.loadByIds(OFFICER_LEFT_IDS)
     self.right_officers = officers.loadByIds(OFFICER_RIGHT_IDS)
@@ -230,6 +331,7 @@ function jacl_state:enter()
 end
 
 function jacl_state:leave(next_state)
+    self.strike_agent_press = nil
     agent_uix.setModalOffset(0)
     agent_uix.setEquipmentCardDrawEnabled(true)
 
@@ -319,6 +421,7 @@ function jacl_state:draw()
         cache_rail.clearTransient(self)
     end
 
+    drawEconTile(self, screen_h)
     agent_roster.draw(self)
     strike_uix.drawPanel(self, agent_roster.getLayout(), {
         font = self.roster_font,
@@ -344,6 +447,7 @@ end
 
 function jacl_state:keypressed(key)
     if key == "escape" then
+        self.strike_agent_press = nil
         self.cache_drag = nil
 
         if self.cache_search_focused then
@@ -362,6 +466,7 @@ end
 
 function jacl_state:mousepressed(x, y, button)
     if button == 2 and strike_prep.isActive() then
+        self.strike_agent_press = nil
         strike_prep.exit()
         return
     end
@@ -405,8 +510,10 @@ function jacl_state:mousepressed(x, y, button)
 
     if strike_prep.isActive() then
         local slot_index = strike_uix.getSlotAtPoint(self, agent_roster.getLayout(), x, y)
+        local slotted_agent = slot_index and strike_prep.getSlots()[slot_index] or nil
 
-        if slot_index and strike_prep.startDragFromSlot(slot_index) then
+        if slotted_agent then
+            armStrikeAgentPress(self, slotted_agent, slot_index, x, y)
             return
         end
     end
@@ -415,16 +522,27 @@ function jacl_state:mousepressed(x, y, button)
 
     if agent then
         if strike_prep.isActive() then
-            strike_prep.startDrag(agent)
+            armStrikeAgentPress(self, agent, nil, x, y)
             return
         end
 
-        cache_rail.openForAgent(self, agent)
-        agent_uix.openModal(agent, "agent")
+        openAgentModal(self, agent)
     end
 end
 
 function jacl_state:mousereleased(x, y, button)
+    if button == 1 and self.strike_agent_press then
+        local pressed_agent = self.strike_agent_press.agent
+
+        if strikeAgentPressExceededThreshold(self, x, y) then
+            beginStrikeAgentDrag(self)
+        else
+            self.strike_agent_press = nil
+            openAgentModal(self, pressed_agent)
+            return
+        end
+    end
+
     if button == 1 and strike_prep.getDragAgent() then
         local slot_index = strike_uix.getSlotAtPoint(self, agent_roster.getLayout(), x, y)
         local roster_layout = agent_roster.getLayout()
@@ -448,6 +566,12 @@ function jacl_state:mousereleased(x, y, button)
 
     if agent_uix.mousereleased(x, y, button) then
         return
+    end
+end
+
+function jacl_state:mousemoved(x, y)
+    if self.strike_agent_press and strikeAgentPressExceededThreshold(self, x, y) then
+        beginStrikeAgentDrag(self)
     end
 end
 

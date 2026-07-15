@@ -16,6 +16,7 @@ local enemy_ai = require("src.sys.enemy_ai")
 local door_room_logic = require("src.sys.door_room_logic")
 local mission_completion = require("src.sys.mission_completion")
 local rumor_missions = require("src.sys.rumor_missions")
+local luggage = require("src.sys.luggage")
 local jacl_state = require("src.states.jacl_state")
 
 local states_core = {
@@ -311,6 +312,7 @@ end
 
 function mission:enter(_, launch_options)
     self.launch_options = launch_options
+    luggage.setMissionActive(true)
     love.math.setRandomSeed(os.time())
     love.graphics.setDefaultFilter("linear", "linear", 1)
     love.graphics.setFont(love.graphics.newFont("assets/fonts/Furore.otf", 20))
@@ -330,6 +332,10 @@ function mission:enter(_, launch_options)
 end
 
 function mission:leave(next_state)
+    if next_state ~= "mission" then
+        luggage.setMissionActive(false)
+    end
+
     if next_state ~= "JACL" then
         return
     end
