@@ -4,9 +4,9 @@ return {
     recommended_level = "",
     rewards = {
         scratch = 100,
-        equip_a = "",
-        equip_b = "",
-        rumor = "",
+        equip_a = "MAM_BRK",
+        equip_b = "MAM_KOB",
+        rumor = "MAM_8",
     },
     tiles = {
         { q = -2, r = 0, palette = 1, swatch = 2, color = { 0.9961, 0.3373, 0.1765, 1.0000 } },

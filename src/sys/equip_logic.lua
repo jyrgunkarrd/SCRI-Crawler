@@ -110,6 +110,10 @@ local function cloneItem(definition)
         inv_h = height,
         mult = math.max(1, math.floor(tonumber(definition.mult) or 1)),
         luggage_filled = 0,
+        equip_A = definition.equip_A or definition.equip_a,
+        equip_B = definition.equip_B or definition.equip_b,
+        ex_rumor = definition.ex_rumor,
+        owner = definition.owner,
         lock_in = definition.lock_in == true,
         lex_deck_ids = definition.lex_deck or {},
         lex_draw_pile = {},
@@ -364,6 +368,39 @@ function equip_logic.moveToInventory(agent, item, col, row)
     runtime.inventory[#runtime.inventory + 1] = item
 
     return true
+end
+
+function equip_logic.replaceInventoryItem(agent, item, replacement_definition_or_id)
+    if not agent or not item or item.location ~= "inventory" then
+        return nil
+    end
+
+    local replacement = equip_logic.createItem(replacement_definition_or_id)
+
+    if not replacement then
+        return nil
+    end
+
+    local original_col = item.inv_col
+    local original_row = item.inv_row
+
+    equip_logic.removeFromAgent(agent, item)
+
+    if equip_logic.moveToInventory(agent, replacement, original_col, original_row) then
+        return replacement
+    end
+
+    for row = 1, INVENTORY_ROWS do
+        for col = 1, INVENTORY_COLS do
+            if equip_logic.moveToInventory(agent, replacement, col, row) then
+                return replacement
+            end
+        end
+    end
+
+    equip_logic.moveToInventory(agent, item, original_col, original_row)
+
+    return nil
 end
 
 function equip_logic.moveToSlot(agent, item, slot_index, options)

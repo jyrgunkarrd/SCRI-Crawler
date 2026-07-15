@@ -14,6 +14,7 @@ local card_vis = require("src.rndr.card_vis")
 
 local agent_uix = {}
 agent_uix.external_preview_equipment = nil
+agent_uix.equipment_choice_items = {}
 
 local PANEL_X = 24
 local PANEL_Y = 24
@@ -1093,6 +1094,35 @@ local function getEquipmentPreviewLayout(layout)
     }
 end
 
+function agent_uix.hasEquipmentChoices(item)
+    return type(item and item.equip_A) == "string"
+        and item.equip_A ~= ""
+        and type(item.equip_B) == "string"
+        and item.equip_B ~= ""
+end
+
+function agent_uix.getEquipmentChoiceItem(id)
+    if type(id) ~= "string" or id == "" then
+        return nil
+    end
+
+    if agent_uix.equipment_choice_items[id] then
+        return agent_uix.equipment_choice_items[id]
+    end
+
+    local definition = equip_logic.getDefinition(id)
+    local item = definition and equip_logic.createItem(definition) or {
+        id = id,
+        name = id,
+        category = "equipment",
+        slots = {},
+    }
+
+    agent_uix.equipment_choice_items[id] = item
+
+    return item
+end
+
 local function getEquipmentPreviewLexRow(item, preview)
     local cards = equip_logic.getLexDeckDefinitionCards(item)
     local y = preview.content_y + EQUIP_PREVIEW_HEADER_H + EQUIP_PREVIEW_ROW_GAP
@@ -1131,7 +1161,7 @@ local function getEquipmentPreviewLexRow(item, preview)
 end
 
 local function getEquipmentPreviewLexCardAt(item, layout, mouse_x, mouse_y)
-    if not item then
+    if not item or agent_uix.hasEquipmentChoices(item) then
         return nil
     end
 
@@ -1175,6 +1205,61 @@ local function drawEquipmentPreviewLexRow(item, preview)
         love.graphics.rectangle("line", thumb_x, row.y, EQUIP_PREVIEW_THUMB_W, EQUIP_PREVIEW_THUMB_H)
         love.graphics.setLineWidth(1)
     end
+end
+
+function agent_uix.drawEquipmentChoiceRow(item, preview, y, font)
+    if not agent_uix.hasEquipmentChoices(item) then
+        return false
+    end
+
+    local targets = {
+        agent_uix.getEquipmentChoiceItem(item.equip_A),
+        agent_uix.getEquipmentChoiceItem(item.equip_B),
+    }
+    local or_w = 44
+    local block_w = math.min(140, (preview.content_w - or_w) / 2)
+    local row_w = block_w * 2 + or_w
+    local start_x = preview.content_x + (preview.content_w - row_w) / 2
+
+    for index, target in ipairs(targets) do
+        local block_x = start_x + (index - 1) * (block_w + or_w)
+        local slot_x = block_x + (block_w - SLOT_BOX_W) / 2
+        local slot_y = y + SLOT_LABEL_H
+        local slot_name = target and target.slots and target.slots[1] or "Equipment"
+        local target_name = target and (target.name or target.id) or "Unknown Equipment"
+
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.rectangle("fill", slot_x, y, SLOT_BOX_W, SLOT_LABEL_H)
+        love.graphics.rectangle("line", slot_x, y, SLOT_BOX_W, SLOT_LABEL_H)
+        love.graphics.setColor(0, 0, 0, 1)
+        love.graphics.printf(slot_name, slot_x + 2, y + 6, SLOT_BOX_W - 4, "center")
+
+        love.graphics.setColor(0.04, 0.038, 0.034, 1)
+        love.graphics.rectangle("fill", slot_x, slot_y, SLOT_BOX_W, SLOT_BOX_H)
+        love.graphics.setColor(MODAL_BORDER_COLOR)
+        love.graphics.rectangle("line", slot_x, slot_y, SLOT_BOX_W, SLOT_BOX_H)
+        drawEquipmentItem(target, slot_x + 4, slot_y + 4, SLOT_BOX_W - 8, SLOT_BOX_H - 8, 1)
+
+        love.graphics.setFont(font)
+        love.graphics.setColor(TEXT_COLOR)
+        love.graphics.printf(
+            target_name,
+            block_x,
+            slot_y + SLOT_BOX_H + EQUIP_PREVIEW_ROW_GAP,
+            block_w,
+            "center"
+        )
+    end
+
+    love.graphics.setFont(font)
+    love.graphics.setColor(TEXT_COLOR)
+    love.graphics.print(
+        "OR",
+        start_x + block_w + (or_w - font:getWidth("OR")) / 2,
+        y + SLOT_LABEL_H + (SLOT_BOX_H - font:getHeight()) / 2
+    )
+
+    return true
 end
 
 local function drawEquipmentHoverPreview(item, layout)
@@ -1239,7 +1324,9 @@ local function drawEquipmentHoverPreview(item, layout)
         cursor_y = cursor_y + EQUIP_PREVIEW_ROW_GAP
     end
 
-    drawEquipmentPreviewLexRow(item, preview)
+    if not agent_uix.drawEquipmentChoiceRow(item, preview, cursor_y, previous_font) then
+        drawEquipmentPreviewLexRow(item, preview)
+    end
 
     love.graphics.setFont(previous_font)
 end

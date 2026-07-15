@@ -20,6 +20,7 @@ local hands = {
 
         },
         lock_in = true, 
+        owner = "MAM",
 
     },
 
@@ -40,6 +41,7 @@ local hands = {
 
         },
         lock_in = true, 
+        owner = "MAM",
 
     },
 

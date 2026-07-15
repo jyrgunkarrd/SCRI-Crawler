@@ -4,6 +4,7 @@ local map_tiles = require("src.rndr.map_tiles")
 local overlays = require("src.rndr.overlays")
 local camera = require("src.rndr.camera")
 local agent_logic = require("src.sys.agent_logic")
+local equip_logic = require("src.sys.equip_logic")
 local agent_uix = require("src.rndr.agent_uix")
 local deck_hand_vis = require("src.rndr.deck_hand_vis")
 local event_spawn = require("src.sys.event_spawn")
@@ -18,6 +19,7 @@ local mission_completion = require("src.sys.mission_completion")
 local rumor_missions = require("src.sys.rumor_missions")
 local luggage = require("src.sys.luggage")
 local reward_uix = require("src.rndr.reward_uix")
+local cache_rail = require("src.rndr.jacl_equipment_cache_rail")
 local jacl_state = require("src.states.jacl_state")
 
 local states_core = {
@@ -54,6 +56,15 @@ local MISSION_COMPLETE_TEXT_COLOR = { 1, 1, 1, 1 }
 local MISSION_COMPLETE_BOX_W = 460
 local MISSION_COMPLETE_BOX_H = 104
 local MISSION_REWARD_TILE_GAP = 14
+local MISSION_RUMOR_BOX_GAP = 20
+
+local function pointInRect(x, y, rect)
+    return rect
+        and x >= rect.x
+        and x <= rect.x + rect.w
+        and y >= rect.y
+        and y <= rect.y + rect.h
+end
 
 local function playPhaseStartSfx(phase)
     if phase == phase_rules.PHASE_MISSION then
@@ -325,11 +336,124 @@ local function buildMissionRewardSummary(state)
     }
 end
 
+local function resolveMissionRumorReward(state)
+    if state.completion_rumor_resolved then
+        return state.completion_rumor_replacement
+    end
+
+    state.completion_rumor_resolved = true
+
+    local rewards = state.room and state.room.rewards or {}
+    local advancement = reward_uix.getRumorAdvancement(rewards)
+
+    if not advancement then
+        return nil
+    end
+
+    local retired_id = advancement[1].id
+    local reward_id = advancement[2].id
+    local checked_agents = {}
+
+    local function replaceForAgent(agent)
+        if not agent or checked_agents[agent] then
+            return nil
+        end
+
+        checked_agents[agent] = true
+
+        for _, item in ipairs(equip_logic.getInventory(agent)) do
+            if item.id == retired_id then
+                return equip_logic.replaceInventoryItem(agent, item, reward_id)
+            end
+        end
+
+        return nil
+    end
+
+    for slot_index = 1, 4 do
+        local agent = state.launch_options
+            and state.launch_options.agents_by_start
+            and state.launch_options.agents_by_start[slot_index]
+        local replacement = replaceForAgent(agent)
+
+        if replacement then
+            state.completion_rumor_replacement = replacement
+            return replacement
+        end
+    end
+
+    for _, agent in ipairs(state.agents or {}) do
+        local replacement = replaceForAgent(agent)
+
+        if replacement then
+            state.completion_rumor_replacement = replacement
+            return replacement
+        end
+    end
+
+    return nil
+end
+
+local function findEquipmentRewardOwner(state, owner_id)
+    if not owner_id then
+        return nil
+    end
+
+    for slot_index = 1, 4 do
+        local agent = state.launch_options
+            and state.launch_options.agents_by_start
+            and state.launch_options.agents_by_start[slot_index]
+
+        if agent and agent.id == owner_id then
+            return agent
+        end
+    end
+
+    for _, agent in ipairs(jacl_state.roster_agents or {}) do
+        if agent.id == owner_id then
+            return agent
+        end
+    end
+
+    return nil
+end
+
+local function grantMissionEquipmentReward(state, reward)
+    local definition = reward and (reward.definition or equip_logic.getDefinition(reward.id)) or nil
+    local owner = findEquipmentRewardOwner(state, definition and definition.owner)
+
+    if not definition or not owner then
+        print(("Unable to grant mission equipment reward '%s': owner '%s' was not found."):format(
+            tostring(reward and reward.id),
+            tostring(definition and definition.owner)
+        ))
+        return false
+    end
+
+    return cache_rail.addEquipmentReward(owner, definition.id)
+end
+
+local function advanceFromMissionCompletion(state)
+    local next_launch = rumor_missions.advanceLaunch(state.launch_options)
+
+    if next_launch then
+        states_core.restart("mission", next_launch)
+    else
+        states_core.switch("JACL", {
+            rewards = buildMissionRewardSummary(state),
+        })
+    end
+end
+
 local function resetMission()
     mission.room = loadMapFile(mission.launch_options)
     event_spawn.initialize(mission.room)
     mission.completion_tracker = mission_completion.initialize(mission.room)
     mission.completion_modal_open = false
+    mission.completion_rumor_resolved = false
+    mission.completion_rumor_replacement = nil
+    mission.completion_equipment_rects = nil
+    mission.completion_equipment_claimed = false
     triggerPlayerRoomSpawns(mission.room)
     mission.agents = collectMissionAgents(mission.room)
     agent_logic.clearSelection()
@@ -343,6 +467,10 @@ function mission:enter(_, launch_options)
     self.launch_options = launch_options or {}
     self.completion_reward_total = normalizeScratchReward(self.launch_options.accumulated_scratch_reward)
     self.completion_reward_added = false
+    self.completion_rumor_resolved = false
+    self.completion_rumor_replacement = nil
+    self.completion_equipment_rects = nil
+    self.completion_equipment_claimed = false
     luggage.setMissionActive(true)
     love.math.setRandomSeed(os.time())
     love.graphics.setDefaultFilter("linear", "linear", 1)
@@ -402,6 +530,7 @@ function mission:update(dt)
         card_play.cancelDrag()
         agent_logic.clearSelection()
         accumulateMissionReward(self)
+        resolveMissionRumorReward(self)
         sfx_logic.playNamed("missioncomplete")
         self.completion_modal_open = true
         return
@@ -467,6 +596,12 @@ local function drawMissionCompleteModal(state)
     local previous_font = love.graphics.getFont()
     local font = state.completion_font or previous_font
     local label = "MISSION COMPLETE"
+    local rewards = state.room and state.room.rewards or {}
+    local rumor_advancement = reward_uix.getRumorAdvancement(rewards)
+    local rumor_advancement_h = reward_uix.getRumorAdvancementRowHeight(rewards, font)
+    local equipment_rewards = reward_uix.getEquipmentRewardPair(rewards)
+    local scratch_y = box_y + MISSION_COMPLETE_BOX_H + MISSION_REWARD_TILE_GAP
+    local equipment_y = scratch_y + reward_uix.getTileHeight() + MISSION_REWARD_TILE_GAP
 
     love.graphics.setFont(font)
 
@@ -484,12 +619,37 @@ local function drawMissionCompleteModal(state)
         box_x + (MISSION_COMPLETE_BOX_W - font:getWidth(label)) / 2,
         box_y + (MISSION_COMPLETE_BOX_H - font:getHeight()) / 2
     )
+
+    if rumor_advancement then
+        reward_uix.drawRumorAdvancementRow(
+            rewards,
+            screen_w / 2,
+            box_y - MISSION_RUMOR_BOX_GAP - rumor_advancement_h,
+            { font = font }
+        )
+    end
+
     reward_uix.drawScratchTile(
         state.completion_reward_total,
         screen_w / 2,
-        box_y + MISSION_COMPLETE_BOX_H + MISSION_REWARD_TILE_GAP,
+        scratch_y,
         { font = font }
     )
+
+    if equipment_rewards then
+        state.completion_equipment_rects = reward_uix.drawEquipmentRewardRow(
+            rewards,
+            screen_w / 2,
+            equipment_y,
+            {
+                font = font,
+                dim_opposite_on_hover = true,
+            }
+        )
+    else
+        state.completion_equipment_rects = nil
+    end
+
     love.graphics.setFont(previous_font)
     love.graphics.setColor(1, 1, 1, 1)
 end
@@ -584,15 +744,21 @@ end
 
 function mission:mousepressed(x, y, button)
     if self.completion_modal_open then
-        if button == 1 then
-            local next_launch = rumor_missions.advanceLaunch(self.launch_options)
+        if button == 1 and not self.completion_equipment_claimed then
+            local equipment_rewards = reward_uix.getEquipmentRewardPair(self.room and self.room.rewards)
 
-            if next_launch then
-                states_core.restart("mission", next_launch)
+            if equipment_rewards then
+                local rects = self.completion_equipment_rects
+                local selected_index = rects and pointInRect(x, y, rects.first) and 1
+                    or rects and pointInRect(x, y, rects.second) and 2
+                    or nil
+
+                if selected_index and grantMissionEquipmentReward(self, equipment_rewards[selected_index]) then
+                    self.completion_equipment_claimed = true
+                    advanceFromMissionCompletion(self)
+                end
             else
-                states_core.switch("JACL", {
-                    rewards = buildMissionRewardSummary(self),
-                })
+                advanceFromMissionCompletion(self)
             end
         end
 

@@ -223,6 +223,15 @@ local agents = {
         start_equip_slot = {
 
             "PHNX",
+            "PHNX",
+            "PHNX",
+            "PHNX",
+            "PHNX",
+            "PHNX",
+            "PHNX",
+            "PHNX",
+            "PHNX",
+            "PHNX",
 
         },
         shout_select = "Say the word.",

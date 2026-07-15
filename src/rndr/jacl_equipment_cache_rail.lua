@@ -561,6 +561,19 @@ function cache_rail.openForAgent(state, agent)
     state.cache_available_ids = getAgentAvailableIds(agent)
 end
 
+function cache_rail.addEquipmentReward(agent, equip_id)
+    if not agent or not equip_id or not equip_logic.getDefinition(equip_id) then
+        return false
+    end
+
+    local available = getAgentAvailableIds(agent)
+
+    available.equipment = available.equipment or {}
+    available.equipment[#available.equipment + 1] = equip_id
+
+    return true
+end
+
 function cache_rail.keypressed(state, key)
     if not state.cache_search_focused then
         return false
