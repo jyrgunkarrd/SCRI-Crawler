@@ -15,6 +15,7 @@ local cache_rail = require("src.rndr.jacl_equipment_cache_rail")
 local rumor_missions = require("src.sys.rumor_missions")
 local rumor_chain = require("src.rndr.jacl_rumor_mission_chain")
 local reward_uix = require("src.rndr.reward_uix")
+local calendar = require("src.sys.calendar")
 
 local jacl_state = {
     name = "JACL",
@@ -53,6 +54,7 @@ local jacl_state = {
     reward_modal = nil,
     cashout_flash = nil,
     econ_pulse = nil,
+    calendar = nil,
 }
 
 local BACKGROUND_COLOR = { 0.018, 0.018, 0.022, 1 }
@@ -756,6 +758,7 @@ function jacl_state:enter(previous_state, transition_options)
     self.jacl_font = love.graphics.newFont("assets/fonts/Furore.otf", 18)
     self.econ_font = love.graphics.newFont("assets/fonts/Furore.otf", 22)
     self.scratch_image = self.scratch_image or image_loader.newImage("assets/images/icons/scratch.webp")
+    self.calendar = self.calendar or calendar.new()
     agent_roster.reset(self)
     cache_rail.reset(self)
     self.strike_button_rect = nil
@@ -795,6 +798,8 @@ function jacl_state:transitionComplete(previous_state)
 end
 
 function jacl_state:update(dt)
+    calendar.update(self.calendar, dt)
+
     local claim = self.reward_modal and self.reward_modal.claim_animation or nil
 
     if claim then
@@ -918,6 +923,7 @@ function jacl_state:draw()
         cache_rail.clearTransient(self)
     end
 
+    calendar.draw(self.calendar, screen_w, screen_h)
     drawEconTile(self, screen_h)
     agent_roster.draw(self)
     strike_uix.drawPanel(self, agent_roster.getLayout(), {
@@ -958,8 +964,34 @@ function jacl_state:draw()
     love.graphics.setColor(1, 1, 1, 1)
 end
 
+local function endCommandPhase(state)
+    if not calendar.endCommandPhase(state.calendar) then
+        return false
+    end
+
+    sfx_logic.playNamed("command")
+    state.strike_agent_press = nil
+    state.roster_search_focused = false
+    cache_rail.clearTransient(state)
+    strike_prep.exit()
+
+    while agent_uix.closeModal() do
+        -- Close nested viewers before closing their parent agent modal.
+    end
+
+    return true
+end
+
 function jacl_state:keypressed(key)
     if self.reward_modal then
+        return
+    end
+
+    if key == "space" and endCommandPhase(self) then
+        return
+    end
+
+    if not calendar.isCommandPhase(self.calendar) then
         return
     end
 
@@ -982,6 +1014,10 @@ function jacl_state:keypressed(key)
 end
 
 function jacl_state:mousepressed(x, y, button)
+    if not calendar.isCommandPhase(self.calendar) then
+        return
+    end
+
     if self.reward_modal then
         if button == 1 then
             redeemRewardsAtPoint(self, x, y)
@@ -1056,6 +1092,10 @@ function jacl_state:mousepressed(x, y, button)
 end
 
 function jacl_state:mousereleased(x, y, button)
+    if not calendar.isCommandPhase(self.calendar) then
+        return
+    end
+
     if self.reward_modal then
         return
     end
@@ -1099,12 +1139,20 @@ function jacl_state:mousereleased(x, y, button)
 end
 
 function jacl_state:mousemoved(x, y)
+    if not calendar.isCommandPhase(self.calendar) then
+        return
+    end
+
     if self.strike_agent_press and strikeAgentPressExceededThreshold(self, x, y) then
         beginStrikeAgentDrag(self)
     end
 end
 
 function jacl_state:textinput(text)
+    if not calendar.isCommandPhase(self.calendar) then
+        return
+    end
+
     if self.reward_modal then
         return
     end
@@ -1121,6 +1169,10 @@ function jacl_state:textinput(text)
 end
 
 function jacl_state:wheelmoved(x, y)
+    if not calendar.isCommandPhase(self.calendar) then
+        return
+    end
+
     if self.reward_modal then
         return
     end
