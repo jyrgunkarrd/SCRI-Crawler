@@ -3,6 +3,8 @@ local jacl_definitions = require("data.jacl")
 local agent_uix = require("src.rndr.agent_uix")
 local agent_logic = require("src.sys.agent_logic")
 local econ = require("src.sys.econ")
+local equip_logic = require("src.sys.equip_logic")
+local luggage = require("src.sys.luggage")
 local sfx_logic = require("src.sys.sfx_logic")
 local strike_prep = require("src.sys.JACL_strk_prep")
 local officers = require("src.sys.officers")
@@ -12,6 +14,7 @@ local strike_uix = require("src.rndr.jacl_strike_prep_uix")
 local cache_rail = require("src.rndr.jacl_equipment_cache_rail")
 local rumor_missions = require("src.sys.rumor_missions")
 local rumor_chain = require("src.rndr.jacl_rumor_mission_chain")
+local reward_uix = require("src.rndr.reward_uix")
 
 local jacl_state = {
     name = "JACL",
@@ -46,6 +49,10 @@ local jacl_state = {
     scratch_image = nil,
     econ_font = nil,
     strike_agent_press = nil,
+    pending_reward_summary = nil,
+    reward_modal = nil,
+    cashout_flash = nil,
+    econ_pulse = nil,
 }
 
 local BACKGROUND_COLOR = { 0.018, 0.018, 0.022, 1 }
@@ -77,6 +84,28 @@ local ECON_TILE_COLOR = { 0, 0, 0, 0.88 }
 local ECON_TILE_OUTLINE_COLOR = { 1, 1, 1, 0.92 }
 local ECON_TEXT_COLOR = { 0, 1, 167 / 255, 1 }
 local STRIKE_AGENT_DRAG_THRESHOLD = 6
+local REWARDS_BACKDROP_COLOR = { 0, 0, 0, 0.82 }
+local REWARDS_PANEL_COLOR = { 0, 0, 0, 0.96 }
+local REWARDS_BORDER_COLOR = { 1, 1, 1, 1 }
+local REWARDS_TEXT_COLOR = { 1, 1, 1, 1 }
+local REWARDS_TITLE_H = 30
+local REWARDS_SECTION_GAP = 18
+local REWARDS_PANEL_MAX_W = 960
+local REWARDS_PANEL_PAD = 18
+local REWARDS_PANEL_HEADER_H = 28
+local REWARDS_ITEM_W = 122
+local REWARDS_ITEM_GRID_SIZE = 94
+local REWARDS_ITEM_LABEL_GAP = 6
+local REWARDS_ITEM_LABEL_H = 36
+local REWARDS_ITEM_GAP = 16
+local REWARDS_AGENT_HEADER_H = 24
+local REWARDS_AGENT_ITEMS_GAP = 8
+local REWARDS_AGENT_SECTION_GAP = 18
+local REWARD_CLAIM_FLASH_SECONDS = 0.08
+local REWARD_CLAIM_FADE_SECONDS = 0.16
+local CASHOUT_FLASH_SECONDS = 0.48
+local ECON_PULSE_SECONDS = 0.28
+local REWARD_CLAIM_COLOR = { 0, 1, 167 / 255, 1 }
 
 local function pointInRect(x, y, rect)
     return x >= rect.x and x <= rect.x + rect.w and y >= rect.y and y <= rect.y + rect.h
@@ -161,7 +190,9 @@ local function drawOfficerColumn(officer_list, center_x, screen_h, font)
     end
 end
 
-local function drawEconTile(state, screen_h)
+local function drawEconTile(state, screen_h, options)
+    options = options or {}
+
     local balance_text = tostring(econ.getBalance())
     local balance_w = state.econ_font:getWidth(balance_text)
     local tile_w = math.max(
@@ -175,6 +206,17 @@ local function drawEconTile(state, screen_h)
     local text_area_w = ECON_TILE_X + tile_w - ECON_VALUE_RIGHT_PADDING - text_area_x
     local text_x = text_area_x + (text_area_w - balance_w) / 2
     local text_y = tile_y + (ECON_TILE_H - state.econ_font:getHeight()) / 2
+    local scale = tonumber(options.scale) or 1
+
+    if scale ~= 1 then
+        local center_x = ECON_TILE_X + tile_w / 2
+        local center_y = tile_y + ECON_TILE_H / 2
+
+        love.graphics.push()
+        love.graphics.translate(center_x, center_y)
+        love.graphics.scale(scale, scale)
+        love.graphics.translate(-center_x, -center_y)
+    end
 
     love.graphics.setColor(ECON_TILE_COLOR)
     love.graphics.rectangle("fill", ECON_TILE_X, tile_y, tile_w, ECON_TILE_H)
@@ -195,6 +237,37 @@ local function drawEconTile(state, screen_h)
     love.graphics.setFont(state.econ_font)
     love.graphics.setColor(ECON_TEXT_COLOR)
     love.graphics.print(balance_text, text_x, text_y)
+
+    if scale ~= 1 then
+        love.graphics.pop()
+    end
+
+    return {
+        x = ECON_TILE_X,
+        y = tile_y,
+        w = tile_w,
+        h = ECON_TILE_H,
+    }
+end
+
+local function drawCashoutFlash(state, econ_rect)
+    local flash = state.cashout_flash
+
+    if not flash or not econ_rect then
+        return
+    end
+
+    local progress = math.min(1, flash.elapsed / CASHOUT_FLASH_SECONDS)
+    local blink = 0.42 + 0.58 * math.abs(math.sin(flash.elapsed * 34))
+    local alpha = (1 - progress) * blink
+    local font = state.econ_font or love.graphics.getFont()
+    local text = "+" .. tostring(math.max(0, math.floor(tonumber(flash.value) or 0)))
+    local text_x = econ_rect.x + (econ_rect.w - font:getWidth(text)) / 2
+    local text_y = econ_rect.y - font:getHeight() - 10
+
+    love.graphics.setFont(font)
+    love.graphics.setColor(ECON_TEXT_COLOR[1], ECON_TEXT_COLOR[2], ECON_TEXT_COLOR[3], alpha)
+    love.graphics.print(text, text_x, text_y)
 end
 
 local function launchStrike()
@@ -288,7 +361,390 @@ local function openAgentModal(state, agent)
     agent_uix.openModal(agent, "agent")
 end
 
-function jacl_state:enter()
+local function createRewardsModal(summary)
+    return {
+        scratch = math.max(0, math.floor(tonumber(summary and summary.scratch) or 0)),
+        scratch_available = true,
+        luggage = luggage.collectFromAgents(summary and summary.agents or {}),
+        scratch_rect = nil,
+        luggage_rects = {},
+    }
+end
+
+local function groupRewardLuggage(entries)
+    local groups = {}
+    local group_by_agent = {}
+
+    for index, entry in ipairs(entries or {}) do
+        local key = entry.agent or entry.slot_index or index
+        local group = group_by_agent[key]
+
+        if not group then
+            group = {
+                agent = entry.agent,
+                entries = {},
+            }
+            group_by_agent[key] = group
+            groups[#groups + 1] = group
+        end
+
+        group.entries[#group.entries + 1] = {
+            entry = entry,
+            modal_index = index,
+        }
+    end
+
+    return groups
+end
+
+local function getRewardsModalLayout(state)
+    local modal = state.reward_modal
+    local screen_w = love.graphics.getWidth()
+    local screen_h = love.graphics.getHeight()
+    local max_panel_w = math.max(
+        REWARDS_ITEM_W + REWARDS_PANEL_PAD * 2,
+        math.min(REWARDS_PANEL_MAX_W, screen_w - 80)
+    )
+    local max_columns = math.max(
+        1,
+        math.floor((max_panel_w - REWARDS_PANEL_PAD * 2 + REWARDS_ITEM_GAP) / (REWARDS_ITEM_W + REWARDS_ITEM_GAP))
+    )
+    local groups = groupRewardLuggage(modal and modal.luggage or {})
+    local largest_group = 0
+
+    for _, group in ipairs(groups) do
+        largest_group = math.max(largest_group, #group.entries)
+    end
+
+    local columns = math.max(1, math.min(max_columns, math.max(largest_group, 1)))
+    local row_h = REWARDS_ITEM_GRID_SIZE + REWARDS_ITEM_LABEL_GAP + REWARDS_ITEM_LABEL_H
+    local content_h = 0
+
+    if #groups == 0 then
+        content_h = row_h
+    else
+        for index, group in ipairs(groups) do
+            group.header_offset_y = content_h
+            content_h = content_h + REWARDS_AGENT_HEADER_H + REWARDS_AGENT_ITEMS_GAP
+            group.items_offset_y = content_h
+            group.rows = math.ceil(#group.entries / columns)
+            content_h = content_h
+                + group.rows * row_h
+                + math.max(0, group.rows - 1) * REWARDS_ITEM_GAP
+
+            if index < #groups then
+                content_h = content_h + REWARDS_AGENT_SECTION_GAP
+            end
+        end
+    end
+
+    local panel_w = REWARDS_PANEL_PAD * 2
+        + columns * REWARDS_ITEM_W
+        + math.max(0, columns - 1) * REWARDS_ITEM_GAP
+    local panel_h = REWARDS_PANEL_PAD
+        + REWARDS_PANEL_HEADER_H
+        + 10
+        + content_h
+        + REWARDS_PANEL_PAD
+    local total_h = REWARDS_TITLE_H
+        + REWARDS_SECTION_GAP
+        + reward_uix.getTileHeight()
+        + REWARDS_SECTION_GAP
+        + panel_h
+    local top_y = math.max(24, (screen_h - total_h) / 2)
+    local scratch_y = top_y + REWARDS_TITLE_H + REWARDS_SECTION_GAP
+    local panel_y = scratch_y + reward_uix.getTileHeight() + REWARDS_SECTION_GAP
+
+    return {
+        screen_w = screen_w,
+        screen_h = screen_h,
+        center_x = screen_w / 2,
+        title_y = top_y,
+        scratch_y = scratch_y,
+        panel_x = (screen_w - panel_w) / 2,
+        panel_y = panel_y,
+        panel_w = panel_w,
+        panel_h = panel_h,
+        columns = columns,
+        row_h = row_h,
+        content_y = panel_y + REWARDS_PANEL_PAD + REWARDS_PANEL_HEADER_H + 10,
+        groups = groups,
+    }
+end
+
+local function getRewardClaimVisual(animation)
+    if animation.elapsed <= REWARD_CLAIM_FLASH_SECONDS then
+        local progress = animation.elapsed / REWARD_CLAIM_FLASH_SECONDS
+
+        return 1 + 0.08 * progress, 1, 0.42 * (1 - progress)
+    end
+
+    local progress = math.min(
+        1,
+        (animation.elapsed - REWARD_CLAIM_FLASH_SECONDS) / REWARD_CLAIM_FADE_SECONDS
+    )
+
+    return 1.08 * (1 - progress), 1 - progress, 0
+end
+
+local function drawRewardClaimAnimation(state, font, item_font)
+    local modal = state.reward_modal
+    local animation = modal and modal.claim_animation or nil
+
+    if not animation or not animation.rect then
+        return
+    end
+
+    local rect = animation.rect
+    local scale, alpha, flash_alpha = getRewardClaimVisual(animation)
+    local center_x = rect.x + rect.w / 2
+    local center_y = rect.y + rect.h / 2
+
+    love.graphics.push()
+    love.graphics.translate(center_x, center_y)
+    love.graphics.scale(math.max(scale, 0.01), math.max(scale, 0.01))
+    love.graphics.translate(-center_x, -center_y)
+
+    if animation.kind == "scratch" then
+        reward_uix.drawScratchTile(animation.value, center_x, rect.y, {
+            font = font,
+            alpha = alpha,
+        })
+    else
+        luggage.draw(animation.entry.item, rect.x, rect.y, rect.w, rect.h, {
+            font = item_font,
+            alpha = alpha,
+        })
+    end
+
+    if flash_alpha > 0 then
+        love.graphics.setColor(
+            REWARD_CLAIM_COLOR[1],
+            REWARD_CLAIM_COLOR[2],
+            REWARD_CLAIM_COLOR[3],
+            flash_alpha
+        )
+        love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h)
+        love.graphics.setColor(REWARD_CLAIM_COLOR)
+        love.graphics.setLineWidth(3)
+        love.graphics.rectangle("line", rect.x, rect.y, rect.w, rect.h)
+        love.graphics.setLineWidth(1)
+    end
+
+    love.graphics.pop()
+end
+
+local function drawRewardsModal(state)
+    local modal = state.reward_modal
+
+    if not modal then
+        return
+    end
+
+    local layout = getRewardsModalLayout(state)
+    local font = state.econ_font or love.graphics.getFont()
+    local item_font = state.roster_font or font
+    local title = "REWARDS"
+
+    love.graphics.setColor(REWARDS_BACKDROP_COLOR)
+    love.graphics.rectangle("fill", 0, 0, layout.screen_w, layout.screen_h)
+    love.graphics.setFont(font)
+    love.graphics.setColor(REWARDS_TEXT_COLOR)
+    love.graphics.print(title, layout.center_x - font:getWidth(title) / 2, layout.title_y)
+
+    if modal.scratch_available then
+        modal.scratch_rect = reward_uix.drawScratchTile(
+            modal.scratch,
+            layout.center_x,
+            layout.scratch_y,
+            { font = font }
+        )
+    else
+        modal.scratch_rect = nil
+    end
+
+    love.graphics.setColor(REWARDS_PANEL_COLOR)
+    love.graphics.rectangle("fill", layout.panel_x, layout.panel_y, layout.panel_w, layout.panel_h)
+    love.graphics.setColor(REWARDS_BORDER_COLOR)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", layout.panel_x, layout.panel_y, layout.panel_w, layout.panel_h)
+    love.graphics.setLineWidth(1)
+    love.graphics.setFont(item_font)
+    love.graphics.setColor(REWARDS_TEXT_COLOR)
+    love.graphics.print("Luggage", layout.panel_x + REWARDS_PANEL_PAD, layout.panel_y + REWARDS_PANEL_PAD)
+
+    modal.luggage_rects = {}
+
+    for _, group in ipairs(layout.groups) do
+        local agent_name = group.agent and (group.agent.name or group.agent.id) or "Agent"
+        local header_y = layout.content_y + group.header_offset_y
+
+        love.graphics.setFont(item_font)
+        love.graphics.setColor(REWARDS_TEXT_COLOR)
+        love.graphics.print(agent_name, layout.panel_x + REWARDS_PANEL_PAD, header_y)
+
+        local divider_x = layout.panel_x + REWARDS_PANEL_PAD + item_font:getWidth(agent_name) + 12
+        local divider_right = layout.panel_x + layout.panel_w - REWARDS_PANEL_PAD
+
+        if divider_x < divider_right then
+            love.graphics.setColor(1, 1, 1, 0.32)
+            love.graphics.line(divider_x, header_y + item_font:getHeight() / 2, divider_right, header_y + item_font:getHeight() / 2)
+        end
+
+        for group_index, grouped_entry in ipairs(group.entries) do
+            local entry = grouped_entry.entry
+            local column = (group_index - 1) % layout.columns
+            local row = math.floor((group_index - 1) / layout.columns)
+            local item_x = layout.panel_x + REWARDS_PANEL_PAD + column * (REWARDS_ITEM_W + REWARDS_ITEM_GAP)
+            local item_y = layout.content_y + group.items_offset_y + row * (layout.row_h + REWARDS_ITEM_GAP)
+            local grid_x = item_x + (REWARDS_ITEM_W - REWARDS_ITEM_GRID_SIZE) / 2
+            local item_name = entry.item and (entry.item.name or entry.item.id) or "Luggage"
+
+            modal.luggage_rects[grouped_entry.modal_index] = {
+                x = grid_x,
+                y = item_y,
+                w = REWARDS_ITEM_GRID_SIZE,
+                h = REWARDS_ITEM_GRID_SIZE,
+            }
+
+            local claiming = modal.claim_animation and modal.claim_animation.entry == entry
+
+            if not claiming then
+                luggage.draw(entry.item, grid_x, item_y, REWARDS_ITEM_GRID_SIZE, REWARDS_ITEM_GRID_SIZE, {
+                    font = item_font,
+                })
+                love.graphics.setFont(item_font)
+                love.graphics.setColor(REWARDS_TEXT_COLOR)
+                love.graphics.printf(
+                    item_name,
+                    item_x,
+                    item_y + REWARDS_ITEM_GRID_SIZE + REWARDS_ITEM_LABEL_GAP,
+                    REWARDS_ITEM_W,
+                    "center"
+                )
+            end
+        end
+    end
+
+    if #modal.luggage == 0 then
+        love.graphics.setColor(1, 1, 1, 0.58)
+        love.graphics.printf(
+            "No luggage",
+            layout.panel_x + REWARDS_PANEL_PAD,
+            layout.content_y + (layout.row_h - item_font:getHeight()) / 2,
+            layout.panel_w - REWARDS_PANEL_PAD * 2,
+            "center"
+        )
+    end
+
+    drawRewardClaimAnimation(state, font, item_font)
+    love.graphics.setColor(1, 1, 1, 1)
+end
+
+local function dismissRewardsModalIfEmpty(state)
+    local modal = state.reward_modal
+
+    if modal and not modal.scratch_available and #modal.luggage == 0 then
+        state.reward_modal = nil
+    end
+end
+
+local function copyRect(rect)
+    return {
+        x = rect.x,
+        y = rect.y,
+        w = rect.w,
+        h = rect.h,
+    }
+end
+
+local function finishRewardClaim(state)
+    local modal = state.reward_modal
+    local animation = modal and modal.claim_animation or nil
+
+    if not animation then
+        return
+    end
+
+    if animation.kind == "luggage" then
+        equip_logic.removeFromAgent(animation.entry.agent, animation.entry.item)
+
+        for index, entry in ipairs(modal.luggage) do
+            if entry == animation.entry then
+                table.remove(modal.luggage, index)
+                break
+            end
+        end
+
+        modal.luggage_rects = {}
+    end
+
+    econ.add(animation.value)
+    sfx_logic.playNamed("cash")
+    state.cashout_flash = {
+        value = animation.value,
+        elapsed = 0,
+    }
+    state.econ_pulse = {
+        elapsed = 0,
+    }
+    modal.claim_animation = nil
+    dismissRewardsModalIfEmpty(state)
+end
+
+local function redeemRewardsAtPoint(state, x, y)
+    local modal = state.reward_modal
+
+    if not modal then
+        return false
+    end
+
+    if modal.claim_animation then
+        return true
+    end
+
+    if modal.scratch_available and modal.scratch_rect and pointInRect(x, y, modal.scratch_rect) then
+        modal.scratch_available = false
+        modal.claim_animation = {
+            kind = "scratch",
+            value = modal.scratch,
+            rect = copyRect(modal.scratch_rect),
+            elapsed = 0,
+        }
+        modal.scratch_rect = nil
+        return true
+    end
+
+    for index, rect in ipairs(modal.luggage_rects or {}) do
+        if pointInRect(x, y, rect) then
+            local entry = modal.luggage[index]
+
+            if entry then
+                modal.claim_animation = {
+                    kind = "luggage",
+                    entry = entry,
+                    value = luggage.getFilledValue(entry.item),
+                    rect = copyRect(rect),
+                    elapsed = 0,
+                }
+            end
+
+            return true
+        end
+    end
+
+    return false
+end
+
+function jacl_state:enter(previous_state, transition_options)
+    self.pending_reward_summary = previous_state == "mission"
+        and transition_options
+        and transition_options.rewards
+        or nil
+    self.reward_modal = nil
+    self.cashout_flash = nil
+    self.econ_pulse = nil
+    agent_uix.setExternalEquipmentPreview(nil)
     love.graphics.setDefaultFilter("linear", "linear", 1)
     love.graphics.setFont(love.graphics.newFont("assets/fonts/Furore.otf", 20))
     love.graphics.setBackgroundColor(BACKGROUND_COLOR)
@@ -330,8 +786,49 @@ function jacl_state:enter()
     self.image = image_loader.newImage(self.image_path)
 end
 
+function jacl_state:transitionComplete(previous_state)
+    if previous_state == "mission" and self.pending_reward_summary then
+        self.reward_modal = createRewardsModal(self.pending_reward_summary)
+    end
+
+    self.pending_reward_summary = nil
+end
+
+function jacl_state:update(dt)
+    local claim = self.reward_modal and self.reward_modal.claim_animation or nil
+
+    if claim then
+        claim.elapsed = claim.elapsed + dt
+
+        if claim.elapsed >= REWARD_CLAIM_FLASH_SECONDS + REWARD_CLAIM_FADE_SECONDS then
+            finishRewardClaim(self)
+        end
+    end
+
+    if self.cashout_flash then
+        self.cashout_flash.elapsed = self.cashout_flash.elapsed + dt
+
+        if self.cashout_flash.elapsed >= CASHOUT_FLASH_SECONDS then
+            self.cashout_flash = nil
+        end
+    end
+
+    if self.econ_pulse then
+        self.econ_pulse.elapsed = self.econ_pulse.elapsed + dt
+
+        if self.econ_pulse.elapsed >= ECON_PULSE_SECONDS then
+            self.econ_pulse = nil
+        end
+    end
+end
+
 function jacl_state:leave(next_state)
     self.strike_agent_press = nil
+    self.pending_reward_summary = nil
+    self.reward_modal = nil
+    self.cashout_flash = nil
+    self.econ_pulse = nil
+    agent_uix.setExternalEquipmentPreview(nil)
     agent_uix.setModalOffset(0)
     agent_uix.setEquipmentCardDrawEnabled(true)
 
@@ -430,6 +927,7 @@ function jacl_state:draw()
         empty_color = roster_theme.empty_color,
         draw_agent_portrait = agent_roster.drawAgentPortrait,
     })
+    agent_uix.setExternalEquipmentPreview(cache_rail.getHoveredPreviewItem(self))
     agent_uix.draw()
     if not agent_uix.isDeckViewerOpen() then
         cache_rail.draw(self)
@@ -441,11 +939,30 @@ function jacl_state:draw()
         radius = agent_roster.getPortraitRadius(),
         draw_agent_portrait = agent_roster.drawAgentPortrait,
     })
+    drawRewardsModal(self)
+
+    if self.reward_modal or self.cashout_flash or self.econ_pulse then
+        local pulse_scale = 1
+
+        if self.econ_pulse then
+            local progress = math.min(1, self.econ_pulse.elapsed / ECON_PULSE_SECONDS)
+
+            pulse_scale = 1 + 0.08 * math.sin(math.pi * progress)
+        end
+
+        local econ_rect = drawEconTile(self, screen_h, { scale = pulse_scale })
+
+        drawCashoutFlash(self, econ_rect)
+    end
 
     love.graphics.setColor(1, 1, 1, 1)
 end
 
 function jacl_state:keypressed(key)
+    if self.reward_modal then
+        return
+    end
+
     if key == "escape" then
         self.strike_agent_press = nil
         self.cache_drag = nil
@@ -465,6 +982,14 @@ function jacl_state:keypressed(key)
 end
 
 function jacl_state:mousepressed(x, y, button)
+    if self.reward_modal then
+        if button == 1 then
+            redeemRewardsAtPoint(self, x, y)
+        end
+
+        return
+    end
+
     if button == 2 and strike_prep.isActive() then
         self.strike_agent_press = nil
         strike_prep.exit()
@@ -531,6 +1056,10 @@ function jacl_state:mousepressed(x, y, button)
 end
 
 function jacl_state:mousereleased(x, y, button)
+    if self.reward_modal then
+        return
+    end
+
     if button == 1 and self.strike_agent_press then
         local pressed_agent = self.strike_agent_press.agent
 
@@ -576,6 +1105,10 @@ function jacl_state:mousemoved(x, y)
 end
 
 function jacl_state:textinput(text)
+    if self.reward_modal then
+        return
+    end
+
     if cache_rail.textinput(self, text) then
         return
     end
@@ -588,6 +1121,10 @@ function jacl_state:textinput(text)
 end
 
 function jacl_state:wheelmoved(x, y)
+    if self.reward_modal then
+        return
+    end
+
     if agent_uix.isModalOpen() then
         if cache_rail.wheelmoved(self, x, y) then
             return

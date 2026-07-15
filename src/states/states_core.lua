@@ -17,6 +17,7 @@ local door_room_logic = require("src.sys.door_room_logic")
 local mission_completion = require("src.sys.mission_completion")
 local rumor_missions = require("src.sys.rumor_missions")
 local luggage = require("src.sys.luggage")
+local reward_uix = require("src.rndr.reward_uix")
 local jacl_state = require("src.states.jacl_state")
 
 local states_core = {
@@ -52,6 +53,7 @@ local MISSION_COMPLETE_BORDER_COLOR = { 1, 1, 1, 1 }
 local MISSION_COMPLETE_TEXT_COLOR = { 1, 1, 1, 1 }
 local MISSION_COMPLETE_BOX_W = 460
 local MISSION_COMPLETE_BOX_H = 104
+local MISSION_REWARD_TILE_GAP = 14
 
 local function playPhaseStartSfx(phase)
     if phase == phase_rules.PHASE_MISSION then
@@ -264,6 +266,7 @@ local function loadMapFile(options)
         id = map_file.id or "map_001",
         name = map_file.name,
         recommended_level = map_file.recommended_level,
+        rewards = type(map_file.rewards) == "table" and map_file.rewards or {},
         path = map_path,
         target_count = #tiles,
         chamber_tiles = tiles,
@@ -296,6 +299,32 @@ local function collectMissionAgents(room)
     return agents
 end
 
+local function normalizeScratchReward(value)
+    return math.max(0, math.floor(tonumber(value) or 0))
+end
+
+local function accumulateMissionReward(state)
+    if state.completion_reward_added then
+        return state.completion_reward_total or 0
+    end
+
+    local mission_reward = normalizeScratchReward(state.room and state.room.rewards and state.room.rewards.scratch)
+
+    state.completion_reward_total = normalizeScratchReward(state.completion_reward_total) + mission_reward
+    state.completion_reward_added = true
+    state.launch_options = state.launch_options or {}
+    state.launch_options.accumulated_scratch_reward = state.completion_reward_total
+
+    return state.completion_reward_total
+end
+
+local function buildMissionRewardSummary(state)
+    return {
+        scratch = normalizeScratchReward(state.completion_reward_total),
+        agents = state.launch_options and state.launch_options.agents_by_start or state.agents or {},
+    }
+end
+
 local function resetMission()
     mission.room = loadMapFile(mission.launch_options)
     event_spawn.initialize(mission.room)
@@ -311,11 +340,14 @@ local function resetMission()
 end
 
 function mission:enter(_, launch_options)
-    self.launch_options = launch_options
+    self.launch_options = launch_options or {}
+    self.completion_reward_total = normalizeScratchReward(self.launch_options.accumulated_scratch_reward)
+    self.completion_reward_added = false
     luggage.setMissionActive(true)
     love.math.setRandomSeed(os.time())
     love.graphics.setDefaultFilter("linear", "linear", 1)
-    love.graphics.setFont(love.graphics.newFont("assets/fonts/Furore.otf", 20))
+    self.completion_font = self.completion_font or love.graphics.newFont("assets/fonts/Furore.otf", 20)
+    love.graphics.setFont(self.completion_font)
     love.graphics.setBackgroundColor(0.055, 0.058, 0.068)
 
     self.room = loadMapFile(self.launch_options)
@@ -369,6 +401,7 @@ function mission:update(dt)
     if mission_completion.update(self.completion_tracker, self.room) and not action_vis.isActive() then
         card_play.cancelDrag()
         agent_logic.clearSelection()
+        accumulateMissionReward(self)
         sfx_logic.playNamed("missioncomplete")
         self.completion_modal_open = true
         return
@@ -426,13 +459,16 @@ function mission:update(dt)
 
 end
 
-local function drawMissionCompleteModal()
+local function drawMissionCompleteModal(state)
     local screen_w = love.graphics.getWidth()
     local screen_h = love.graphics.getHeight()
     local box_x = (screen_w - MISSION_COMPLETE_BOX_W) / 2
     local box_y = (screen_h - MISSION_COMPLETE_BOX_H) / 2
-    local font = love.graphics.getFont()
+    local previous_font = love.graphics.getFont()
+    local font = state.completion_font or previous_font
     local label = "MISSION COMPLETE"
+
+    love.graphics.setFont(font)
 
     love.graphics.setColor(MISSION_COMPLETE_BACKDROP_COLOR)
     love.graphics.rectangle("fill", 0, 0, screen_w, screen_h)
@@ -448,6 +484,13 @@ local function drawMissionCompleteModal()
         box_x + (MISSION_COMPLETE_BOX_W - font:getWidth(label)) / 2,
         box_y + (MISSION_COMPLETE_BOX_H - font:getHeight()) / 2
     )
+    reward_uix.drawScratchTile(
+        state.completion_reward_total,
+        screen_w / 2,
+        box_y + MISSION_COMPLETE_BOX_H + MISSION_REWARD_TILE_GAP,
+        { font = font }
+    )
+    love.graphics.setFont(previous_font)
     love.graphics.setColor(1, 1, 1, 1)
 end
 
@@ -506,7 +549,7 @@ function mission:draw()
     action_vis.draw()
 
     if self.completion_modal_open then
-        drawMissionCompleteModal()
+        drawMissionCompleteModal(self)
     end
 end
 
@@ -547,7 +590,9 @@ function mission:mousepressed(x, y, button)
             if next_launch then
                 states_core.restart("mission", next_launch)
             else
-                states_core.switch("JACL")
+                states_core.switch("JACL", {
+                    rewards = buildMissionRewardSummary(self),
+                })
             end
         end
 
@@ -674,6 +719,7 @@ local function startTransition(name, allow_same_state, ...)
     states_core.transition = {
         phase = "closing",
         elapsed = 0,
+        from_name = states_core.current_name,
         next_name = name,
         args = { ... },
         arg_count = select("#", ...),
@@ -709,6 +755,10 @@ local function updateTransition(dt)
         transition.elapsed = 0
     elseif transition.phase == "opening" and transition.elapsed >= SHUTTER_OPEN_SECONDS then
         states_core.transition = nil
+
+        if states_core.current and states_core.current.transitionComplete then
+            states_core.current:transitionComplete(transition.from_name)
+        end
     end
 end
 

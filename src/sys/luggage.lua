@@ -41,6 +41,56 @@ function luggage.getFilledCellCount(item)
     )
 end
 
+function luggage.getFilledValue(item)
+    return luggage.getFilledCellCount(item) * luggage.getMultiplier(item)
+end
+
+function luggage.collectFromAgents(agents)
+    local entries = {}
+    local seen_items = {}
+
+    for slot_index = 1, 4 do
+        local agent = agents and agents[slot_index] or nil
+        local inventory = agent and agent.equipment_runtime and agent.equipment_runtime.inventory or {}
+
+        for _, item in ipairs(inventory) do
+            if luggage.isLuggage(item) and not seen_items[item] then
+                seen_items[item] = true
+                entries[#entries + 1] = {
+                    agent = agent,
+                    item = item,
+                    slot_index = slot_index,
+                }
+            end
+        end
+    end
+
+    table.sort(entries, function(a, b)
+        if a.slot_index ~= b.slot_index then
+            return a.slot_index < b.slot_index
+        end
+
+        local a_row = tonumber(a.item and a.item.inv_row) or math.huge
+        local b_row = tonumber(b.item and b.item.inv_row) or math.huge
+
+        if a_row ~= b_row then
+            return a_row < b_row
+        end
+
+        local a_col = tonumber(a.item and a.item.inv_col) or math.huge
+        local b_col = tonumber(b.item and b.item.inv_col) or math.huge
+
+        if a_col ~= b_col then
+            return a_col < b_col
+        end
+
+        return tostring(a.item and (a.item.uid or a.item.id) or "")
+            < tostring(b.item and (b.item.uid or b.item.id) or "")
+    end)
+
+    return entries
+end
+
 function luggage.setMissionActive(active)
     mission_active = active == true
 end

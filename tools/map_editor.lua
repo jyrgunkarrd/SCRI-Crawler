@@ -34,6 +34,9 @@ local MODAL_H = 300
 local MODAL_FIELD_W = 360
 local MODAL_FIELD_H = 34
 local MODAL_FIELD_GAP = 18
+local MODAL_PANEL_GAP = 14
+local REWARDS_MODAL_H = 292
+local REWARDS_FIELD_GAP = 10
 
 local state = {
     tiles = {},
@@ -41,6 +44,10 @@ local state = {
     map_name = "",
     map_id = "",
     recommended_level = "",
+    reward_scratch = "",
+    reward_equip_a = "",
+    reward_equip_b = "",
+    reward_rumor = "",
     palette_id = 1,
     palette = {},
     swatch_index = 1,
@@ -507,9 +514,13 @@ local function startMapInfoEdit()
     state.map_info_edit = {
         active_field = 1,
         fields = {
-            { key = "map_name", label = "Map Name", text = state.map_name or "" },
-            { key = "map_id", label = "Map ID", text = state.map_id ~= "" and state.map_id or getDefaultMapId() },
-            { key = "recommended_level", label = "Recommended Level", text = tostring(state.recommended_level or "") },
+            { key = "map_name", label = "Map Name", panel = "info", row = 1, text = state.map_name or "" },
+            { key = "map_id", label = "Map ID", panel = "info", row = 2, text = state.map_id ~= "" and state.map_id or getDefaultMapId() },
+            { key = "recommended_level", label = "Level", panel = "info", row = 3, text = tostring(state.recommended_level or "") },
+            { key = "reward_scratch", label = "Scratch", panel = "rewards", row = 1, text = tostring(state.reward_scratch or "") },
+            { key = "reward_equip_a", label = "Equip A", panel = "rewards", row = 2, text = tostring(state.reward_equip_a or "") },
+            { key = "reward_equip_b", label = "Equip B", panel = "rewards", row = 3, text = tostring(state.reward_equip_b or "") },
+            { key = "reward_rumor", label = "Rumor", panel = "rewards", row = 4, text = tostring(state.reward_rumor or "") },
         },
         suppress_text = "i",
     }
@@ -749,12 +760,20 @@ local function serializeMap(file_name)
 
     local map_id = state.map_id ~= "" and state.map_id or getBaseName(file_name)
     local recommended_level = tonumber(state.recommended_level)
+    local reward_scratch = tonumber(state.reward_scratch)
     local lines = {
         "return {",
         ("    id = %q,"):format(map_id),
         ("    name = %q,"):format(state.map_name or ""),
         recommended_level and ("    recommended_level = %s,"):format(recommended_level)
             or ("    recommended_level = %q,"):format(state.recommended_level or ""),
+        "    rewards = {",
+        reward_scratch and ("        scratch = %s,"):format(reward_scratch)
+            or ("        scratch = %q,"):format(state.reward_scratch or ""),
+        ("        equip_a = %q,"):format(state.reward_equip_a or ""),
+        ("        equip_b = %q,"):format(state.reward_equip_b or ""),
+        ("        rumor = %q,"):format(state.reward_rumor or ""),
+        "    },",
         "    tiles = {",
     }
 
@@ -914,6 +933,12 @@ local function performLoadMapFile(next_index, next_file_name)
     state.map_name = map_file.name or ""
     state.map_id = map_file.id or getBaseName(state.active_file_name)
     state.recommended_level = map_file.recommended_level and tostring(map_file.recommended_level) or ""
+    local rewards = type(map_file.rewards) == "table" and map_file.rewards or {}
+
+    state.reward_scratch = rewards.scratch ~= nil and tostring(rewards.scratch) or ""
+    state.reward_equip_a = rewards.equip_a ~= nil and tostring(rewards.equip_a) or ""
+    state.reward_equip_b = rewards.equip_b ~= nil and tostring(rewards.equip_b) or ""
+    state.reward_rumor = rewards.rumor ~= nil and tostring(rewards.rumor) or ""
 
     for _, tile in ipairs(map_file.tiles or {}) do
         state.tiles[tileKey(tile.q, tile.r)] = {
@@ -1137,6 +1162,49 @@ local function drawPalette()
     love.graphics.setColor(1, 1, 1, 1)
 end
 
+local function getMapInfoModalLayout()
+    local screen_w = love.graphics.getWidth()
+    local screen_h = love.graphics.getHeight()
+    local total_h = MODAL_H + MODAL_PANEL_GAP + REWARDS_MODAL_H
+    local x = (screen_w - MODAL_W) / 2
+    local info_y = (screen_h - total_h) / 2
+    local rewards_y = info_y + MODAL_H + MODAL_PANEL_GAP
+    local field_x = x + MODAL_W - MODAL_FIELD_W - 34
+
+    return {
+        screen_w = screen_w,
+        screen_h = screen_h,
+        x = x,
+        info_y = info_y,
+        rewards_y = rewards_y,
+        field_x = field_x,
+    }
+end
+
+local function getMapInfoFieldRect(field, layout)
+    local panel_y = field.panel == "rewards" and layout.rewards_y or layout.info_y
+    local first_field_y = panel_y + (field.panel == "rewards" and 66 or 82)
+    local field_gap = field.panel == "rewards" and REWARDS_FIELD_GAP or MODAL_FIELD_GAP
+
+    return {
+        x = layout.field_x,
+        y = first_field_y + ((field.row or 1) - 1) * (MODAL_FIELD_H + field_gap),
+        w = MODAL_FIELD_W,
+        h = MODAL_FIELD_H,
+    }
+end
+
+local function drawMapInfoPanel(x, y, h, title)
+    love.graphics.setColor(MODAL_FILL_COLOR)
+    love.graphics.rectangle("fill", x, y, MODAL_W, h)
+    love.graphics.setColor(MODAL_OUTLINE_COLOR)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", x, y, MODAL_W, h)
+    love.graphics.setLineWidth(1)
+    love.graphics.setColor(TEXT_COLOR)
+    love.graphics.print(title, x + 28, y + 28)
+end
+
 local function drawMapInfoModal()
     local edit = state.map_info_edit
 
@@ -1144,48 +1212,40 @@ local function drawMapInfoModal()
         return
     end
 
-    local screen_w = love.graphics.getWidth()
-    local screen_h = love.graphics.getHeight()
-    local x = (screen_w - MODAL_W) / 2
-    local y = (screen_h - MODAL_H) / 2
-    local field_x = x + MODAL_W - MODAL_FIELD_W - 34
-    local field_y = y + 82
+    local layout = getMapInfoModalLayout()
     local font = love.graphics.getFont()
 
     love.graphics.setColor(MODAL_BACKDROP_COLOR)
-    love.graphics.rectangle("fill", 0, 0, screen_w, screen_h)
-    love.graphics.setColor(MODAL_FILL_COLOR)
-    love.graphics.rectangle("fill", x, y, MODAL_W, MODAL_H)
-    love.graphics.setColor(MODAL_OUTLINE_COLOR)
-    love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", x, y, MODAL_W, MODAL_H)
-    love.graphics.setLineWidth(1)
-
-    love.graphics.setColor(TEXT_COLOR)
-    love.graphics.print("Map Information", x + 28, y + 28)
+    love.graphics.rectangle("fill", 0, 0, layout.screen_w, layout.screen_h)
+    drawMapInfoPanel(layout.x, layout.info_y, MODAL_H, "Map Information")
+    drawMapInfoPanel(layout.x, layout.rewards_y, REWARDS_MODAL_H, "Rewards")
 
     for index, field in ipairs(edit.fields) do
-        local row_y = field_y + (index - 1) * (MODAL_FIELD_H + MODAL_FIELD_GAP)
+        local rect = getMapInfoFieldRect(field, layout)
         local active = index == edit.active_field
 
         love.graphics.setColor(TEXT_COLOR)
-        love.graphics.print(field.label, x + 34, row_y + 7)
+        love.graphics.print(field.label, layout.x + 34, rect.y + 7)
         love.graphics.setColor(active and MODAL_FIELD_ACTIVE_COLOR or MODAL_FIELD_COLOR)
-        love.graphics.rectangle("fill", field_x, row_y, MODAL_FIELD_W, MODAL_FIELD_H)
+        love.graphics.rectangle("fill", rect.x, rect.y, rect.w, rect.h)
         love.graphics.setColor(MODAL_FIELD_OUTLINE_COLOR)
-        love.graphics.rectangle("line", field_x, row_y, MODAL_FIELD_W, MODAL_FIELD_H)
+        love.graphics.rectangle("line", rect.x, rect.y, rect.w, rect.h)
         love.graphics.setColor(TEXT_COLOR)
-        love.graphics.print(field.text, field_x + 10, row_y + (MODAL_FIELD_H - font:getHeight()) / 2)
+        love.graphics.print(field.text, rect.x + 10, rect.y + (rect.h - font:getHeight()) / 2)
 
         if active and math.floor(love.timer.getTime() * 2) % 2 == 0 then
-            local cursor_x = field_x + 10 + font:getWidth(field.text)
+            local cursor_x = rect.x + 10 + font:getWidth(field.text)
 
-            love.graphics.line(cursor_x + 2, row_y + 6, cursor_x + 2, row_y + MODAL_FIELD_H - 6)
+            love.graphics.line(cursor_x + 2, rect.y + 6, cursor_x + 2, rect.y + rect.h - 6)
         end
     end
 
     love.graphics.setColor(1, 1, 1, 0.68)
-    love.graphics.print("Tab selects field   Enter saves   Esc cancels", x + 28, y + MODAL_H - 42)
+    love.graphics.print(
+        "Tab selects field   Enter saves   Esc cancels",
+        layout.x + 28,
+        layout.rewards_y + REWARDS_MODAL_H - 36
+    )
     love.graphics.setColor(1, 1, 1, 1)
 end
 
@@ -1349,6 +1409,10 @@ function editor.keypressed(key)
         state.map_name = ""
         state.map_id = ""
         state.recommended_level = ""
+        state.reward_scratch = ""
+        state.reward_equip_a = ""
+        state.reward_equip_b = ""
+        state.reward_rumor = ""
         state.active_file_name = nil
         state.active_file_index = nil
         state.message = "Cleared map."
@@ -1413,15 +1477,12 @@ end
 function editor.mousepressed(x, y, button)
     if state.map_info_edit then
         if button == 1 then
-            local modal_x = (love.graphics.getWidth() - MODAL_W) / 2
-            local modal_y = (love.graphics.getHeight() - MODAL_H) / 2
-            local field_x = modal_x + MODAL_W - MODAL_FIELD_W - 34
-            local field_y = modal_y + 82
+            local layout = getMapInfoModalLayout()
 
-            for index in ipairs(state.map_info_edit.fields) do
-                local row_y = field_y + (index - 1) * (MODAL_FIELD_H + MODAL_FIELD_GAP)
+            for index, field in ipairs(state.map_info_edit.fields) do
+                local rect = getMapInfoFieldRect(field, layout)
 
-                if x >= field_x and x <= field_x + MODAL_FIELD_W and y >= row_y and y <= row_y + MODAL_FIELD_H then
+                if x >= rect.x and x <= rect.x + rect.w and y >= rect.y and y <= rect.y + rect.h then
                     state.map_info_edit.active_field = index
                     break
                 end

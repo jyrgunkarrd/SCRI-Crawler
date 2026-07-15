@@ -55,6 +55,7 @@ end
 
 local equip_images = {}
 local missing_equip_images = {}
+local preview_items = {}
 
 local function pointInRect(x, y, rect)
     return x >= rect.x and x <= rect.x + rect.w and y >= rect.y and y <= rect.y + rect.h
@@ -320,6 +321,29 @@ local function getDefinitionAtPoint(state, x, y)
     end
 
     return definitions[index]
+end
+
+function cache_rail.getHoveredPreviewItem(state)
+    if not agent_uix.isModalOpen()
+        or agent_uix.isDeckViewerOpen()
+        or not state.cache_agent
+        or state.cache_drag
+    then
+        return nil
+    end
+
+    local mouse_x, mouse_y = love.mouse.getPosition()
+    local definition = getDefinitionAtPoint(state, mouse_x, mouse_y)
+
+    if not definition then
+        return nil
+    end
+
+    if not preview_items[definition.id] then
+        preview_items[definition.id] = equip_logic.createItem(definition)
+    end
+
+    return preview_items[definition.id]
 end
 
 local function getNameFont(state, label, max_w, max_h)

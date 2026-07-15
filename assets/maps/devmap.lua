@@ -2,6 +2,12 @@ return {
     id = "map_004",
     name = "Mission alpha : black barrow",
     recommended_level = 0,
+    rewards = {
+        scratch = 100,
+        equip_a = "",
+        equip_b = "",
+        rumor = "",
+    },
     tiles = {
         { q = 3, r = -6, palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },
         { q = 4, r = -6, palette = 1, swatch = 7, color = { 0.5020, 0.5647, 0.3843, 1.0000 } },

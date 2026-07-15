@@ -13,6 +13,7 @@ local card_play = require("src.sys.card_play")
 local card_vis = require("src.rndr.card_vis")
 
 local agent_uix = {}
+agent_uix.external_preview_equipment = nil
 
 local PANEL_X = 24
 local PANEL_Y = 24
@@ -1517,7 +1518,7 @@ local function drawFateModal()
         local mouse_x, mouse_y = love.mouse.getPosition()
 
         hovered_equipment = findEquipmentAtPoint(modal_unit, layout, mouse_x, mouse_y)
-        preview_equipment = pinned_equipment or hovered_equipment
+        preview_equipment = agent_uix.external_preview_equipment or pinned_equipment or hovered_equipment
         hovered_preview_card = getEquipmentPreviewLexCardAt(preview_equipment, layout, mouse_x, mouse_y)
     else
         preview_equipment = nil
@@ -1705,6 +1706,10 @@ end
 
 function agent_uix.getDraggedEquipmentItem()
     return equip_drag and equip_drag.item or nil
+end
+
+function agent_uix.setExternalEquipmentPreview(item)
+    agent_uix.external_preview_equipment = item
 end
 
 function agent_uix.mousepressed(x, y, button)

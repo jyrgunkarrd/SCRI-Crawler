@@ -114,6 +114,14 @@ local agents = {
 
             },
 
+            luggage = {
+
+                "clone",
+                "brief",
+                "truck",
+
+            },
+
         },
 
     },
@@ -158,6 +166,14 @@ local agents = {
 
                 "MAM_8",
                 "MAM_SENG",
+
+            },
+
+            luggage = {
+
+                "clone",
+                "brief",
+                "truck",
 
             },
 
@@ -219,6 +235,14 @@ local agents = {
 
             },
 
+            luggage = {
+
+                "clone",
+                "brief",
+                "truck",
+
+            },
+
         },
 
     },
@@ -263,6 +287,14 @@ local agents = {
 
                 "MAM_8",
                 "MAM_SENG",
+
+            },
+
+            luggage = {
+
+                "clone",
+                "brief",
+                "truck",
 
             },
 
@@ -319,6 +351,14 @@ local agents = {
 
             },
 
+            luggage = {
+
+                "clone",
+                "brief",
+                "truck",
+
+            },
+
         },
 
     },
@@ -369,6 +409,14 @@ local agents = {
 
                 "MAM_8",
                 "MAM_SENG",
+
+            },
+
+            luggage = {
+
+                "clone",
+                "brief",
+                "truck",
 
             },
 

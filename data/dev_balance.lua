@@ -3,6 +3,6 @@ return
 
 {
 
-    scratch = 10000000,
+    scratch = 10,
 
 }

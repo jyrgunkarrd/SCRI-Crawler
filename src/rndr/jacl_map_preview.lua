@@ -13,6 +13,8 @@ local CORRIDOR_COLOR = { 0.27, 0.39, 0.35, 1 }
 local START_FILL_COLOR = { 1, 1, 1, 0.96 }
 local START_TEXT_COLOR = { 0, 0, 0, 1 }
 local DOOR_COLOR = { 1, 1, 1, 0.34 }
+local REWARD_VALUE_COLOR = { 0, 1, 167 / 255, 1 }
+local REWARD_LABEL_GAP = 16
 local HEX_SIZE = 54
 
 local function buildHexPoints(center_x, center_y, radius)
@@ -79,6 +81,7 @@ function map_preview.load(path)
         id = map_file.id,
         name = map_file.name,
         recommended_level = map_file.recommended_level,
+        rewards = type(map_file.rewards) == "table" and map_file.rewards or {},
         path = path,
         tiles = tiles,
         doors = map_file.doors or {},
@@ -149,10 +152,27 @@ function map_preview.draw(state, room, screen_h, options)
     local font = options.font or love.graphics.getFont()
     local title_color = options.title_color or { 1, 1, 1, 1 }
     local outline_color = options.outline_color or { 1, 1, 1, 0.92 }
+    local scratch_reward = room.rewards and room.rewards.scratch or nil
+    local reward_value = scratch_reward ~= nil and tostring(scratch_reward) or "0"
+
+    if reward_value == "" then
+        reward_value = "0"
+    end
+
+    local reward_prefix = "Reward: "
+    local reward_prefix_w = font:getWidth(reward_prefix)
+    local reward_value_w = font:getWidth(reward_value)
+    local reward_w = reward_prefix_w + reward_value_w
+    local reward_x = layout.label_x + layout.label_w - reward_w
+    local reward_y = layout.label_y + (layout.label_h - font:getHeight()) / 2
+    local left_label_w = math.max(1, layout.label_w - reward_w - REWARD_LABEL_GAP)
 
     love.graphics.setFont(font)
     love.graphics.setColor(title_color)
-    love.graphics.printf(label, layout.label_x, layout.label_y, layout.label_w, "left")
+    love.graphics.printf(label, layout.label_x, layout.label_y, left_label_w, "left")
+    love.graphics.print(reward_prefix, reward_x, reward_y)
+    love.graphics.setColor(REWARD_VALUE_COLOR)
+    love.graphics.print(reward_value, reward_x + reward_prefix_w, reward_y)
 
     love.graphics.setColor(PREVIEW_COLOR)
     love.graphics.rectangle("fill", layout.x, layout.y, layout.w, layout.h)
