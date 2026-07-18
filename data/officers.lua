@@ -8,6 +8,7 @@ local officers = {
         id = "cap",
         name = "Cpt. Carol Layte",
         office = "The Helm",
+        shout = "Engage",
 
     },
 
@@ -16,6 +17,7 @@ local officers = {
         id = "tac",
         name = "Cdr. Julia West",
         office = "The Smoke Pit",
+        shout = "Lock and load",
 
     },
 
@@ -24,6 +26,7 @@ local officers = {
         id = "sher",
         name = "Detective Creeks",
         office = "The Fence",
+        shout = "Trust nothing",
 
     },
 
@@ -33,6 +36,7 @@ local officers = {
         id = "surg",
         name = "Dr. Park Ha-eun",
         office = "The Wet Block",
+        shout = "Clean and prep.",
 
     },
 
@@ -40,7 +44,8 @@ local officers = {
 
         id = "eng",
         name = "Dr. J. Martin",
-        office = "The Plug"
+        office = "The Plug",
+        shout = "We're cooking.",
 
     },
 
@@ -48,7 +53,13 @@ local officers = {
 
         id = "sci",
         name = "Dr. Aya al-Najjar",
-        office = "The Blackboard"
+        office = "The Blackboard",
+        shout = "Project initiated.",
+        orders = {
+
+            "luggage",
+
+        },
 
     },
 

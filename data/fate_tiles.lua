@@ -56,6 +56,14 @@ local fate_tiles = {
 
     },
 
+    {
+
+        id = "BSCFATIGUE",
+        value = 0,
+        fail = true,
+
+    },
+
 }
 
 return fate_tiles

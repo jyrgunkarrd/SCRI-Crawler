@@ -3,6 +3,7 @@ local agent_definitions = require("data.agents")
 local dev_roster = require("data.dev_roster")
 local agent_logic = require("src.sys.agent_logic")
 local strike_prep = require("src.sys.JACL_strk_prep")
+local officers = require("src.sys.officers")
 local utf8 = require("utf8")
 
 local roster = {}
@@ -40,6 +41,8 @@ local PROMPT_TEXT_COLOR = { 1, 1, 1, 0.9 }
 local PROMPT_CURSOR_COLOR = { 1, 1, 1, 0.82 }
 local PORTRAIT_OUTLINE_COLOR = { 0.015, 0.012, 0.01, 1 }
 local EMPTY_COLOR = { 1, 1, 1, 0.52 }
+local EVENT_HIGHLIGHT_COLOR = { 1, 1, 1, 1 }
+local EVENT_HIGHLIGHT_WIDTH = 4
 
 local portraits = {}
 local missing_portraits = {}
@@ -152,9 +155,64 @@ local function normalizeSearchText(text)
     return text:match("^%s*(.-)%s*$")
 end
 
+local function isSameAgent(first, second)
+    return first == second
+        or first
+        and second
+        and first.id ~= nil
+        and first.id == second.id
+end
+
 local function getFilteredAgents(state)
     local query = normalizeSearchText(state.roster_search_text)
-    local roster_agents = strike_prep.filterRosterAgents(state.roster_agents)
+    local officer_lists = { state.left_officers, state.right_officers }
+    local roster_agents = officers.filterRosterAgents(
+        officer_lists,
+        strike_prep.filterRosterAgents(state.roster_agents)
+    )
+    local highlighted_agent = state.roster_highlight_agent
+
+    if highlighted_agent then
+        local already_present = false
+
+        for _, agent in ipairs(roster_agents) do
+            if isSameAgent(agent, highlighted_agent) then
+                already_present = true
+                break
+            end
+        end
+
+        if not already_present then
+            local highlighted_rank = math.huge
+
+            for index, agent in ipairs(state.roster_agents or {}) do
+                if isSameAgent(agent, highlighted_agent) then
+                    highlighted_agent = agent
+                    highlighted_rank = index
+                    break
+                end
+            end
+
+            if highlighted_rank < math.huge then
+                local insert_at = #roster_agents + 1
+
+                for visible_index, agent in ipairs(roster_agents) do
+                    for original_index, original_agent in ipairs(state.roster_agents or {}) do
+                        if isSameAgent(agent, original_agent) and original_index > highlighted_rank then
+                            insert_at = visible_index
+                            break
+                        end
+                    end
+
+                    if insert_at <= #roster_agents then
+                        break
+                    end
+                end
+
+                table.insert(roster_agents, insert_at, highlighted_agent)
+            end
+        end
+    end
 
     if query == "" then
         return roster_agents
@@ -166,7 +224,10 @@ local function getFilteredAgents(state)
         local name = tostring(agent.name or ""):lower()
         local id = tostring(agent.id or ""):lower()
 
-        if name:find(query, 1, true) or id:find(query, 1, true) then
+        if isSameAgent(agent, highlighted_agent)
+            or name:find(query, 1, true)
+            or id:find(query, 1, true)
+        then
             filtered_agents[#filtered_agents + 1] = agent
         end
     end
@@ -270,6 +331,7 @@ function roster.reset(state)
     state.roster_search_focused = false
     state.roster_agents = loadAgents()
     state.roster_scroll_x = 0
+    state.roster_highlight_agent = nil
 end
 
 function roster.getLayout()
@@ -324,6 +386,76 @@ function roster.drawAgentPortrait(agent, center_x, center_y, radius)
     end
 end
 
+function roster.focusAgent(state, agent)
+    state.roster_highlight_agent = agent
+
+    if not agent then
+        return false
+    end
+
+    state.roster_search_text = ""
+
+    local layout = roster.getLayout()
+    local roster_agents = getFilteredAgents(state)
+    local target_index = nil
+
+    for index, roster_agent in ipairs(roster_agents) do
+        if isSameAgent(roster_agent, agent) then
+            target_index = index
+            break
+        end
+    end
+
+    if not target_index then
+        return false
+    end
+
+    local target_left = (target_index - 1) * (ITEM_W + GAP)
+    local target_right = target_left + ITEM_W
+    local scroll_x = clampScroll(state.roster_scroll_x, layout, #roster_agents)
+
+    if target_left < scroll_x then
+        scroll_x = target_left
+    elseif target_right > scroll_x + layout.content_w then
+        scroll_x = target_right - layout.content_w
+    end
+
+    state.roster_scroll_x = clampScroll(scroll_x, layout, #roster_agents)
+
+    return true
+end
+
+function roster.clearFocusedAgent(state)
+    state.roster_highlight_agent = nil
+end
+
+function roster.getAgentVisualRect(state, agent)
+    if not agent then
+        return nil
+    end
+
+    local layout = roster.getLayout()
+    local roster_agents = getFilteredAgents(state)
+    local scroll_x = clampScroll(state.roster_scroll_x, layout, #roster_agents)
+
+    for index, roster_agent in ipairs(roster_agents) do
+        if isSameAgent(roster_agent, agent) then
+            local item_x = layout.content_x - scroll_x + (index - 1) * (ITEM_W + GAP)
+            local center_x = item_x + ITEM_W / 2
+            local center_y = layout.content_y + PORTRAIT_RADIUS + 4
+
+            return {
+                x = center_x - PORTRAIT_RADIUS,
+                y = center_y - PORTRAIT_RADIUS,
+                w = PORTRAIT_RADIUS * 2,
+                h = PORTRAIT_RADIUS * 2,
+            }
+        end
+    end
+
+    return nil
+end
+
 function roster.draw(state)
     local layout = roster.getLayout()
     local roster_agents = getFilteredAgents(state)
@@ -372,6 +504,13 @@ function roster.draw(state)
 
         if image then
             drawHexPortrait(image, center_x, portrait_y, PORTRAIT_RADIUS)
+        end
+
+        if isSameAgent(agent, state.roster_highlight_agent) then
+            love.graphics.setColor(EVENT_HIGHLIGHT_COLOR)
+            love.graphics.setLineWidth(EVENT_HIGHLIGHT_WIDTH)
+            love.graphics.polygon("line", buildHexPoints(center_x, portrait_y, PORTRAIT_RADIUS + 4))
+            love.graphics.setLineWidth(1)
         end
 
         local name = agent.name or agent.id

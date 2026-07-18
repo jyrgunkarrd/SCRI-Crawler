@@ -99,7 +99,7 @@ end
 local states_core = require("src.states.states_core")
 
 function love.load()
-    states_core.load("JACL")
+    states_core.load("load_save")
 end
 
 function love.update(dt)

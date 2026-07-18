@@ -5,11 +5,22 @@ local luggage = {
 
     {
 
-        id = "clone",
-        name = "Card Clone",
+        id = "bag",
+        name = "Canvas Bag",
         inv_size = {H = 1, W = 1},
         category = "luggage",
         mult = 1,
+        -- Order Data
+        order = true,
+        work = 2,
+        cost = 2,
+        avail_min = 5,
+        avail_max = 10,
+        options = {
+
+            { name = "Crunch Time", cost_mult = 2, work_mult = 0.5 },
+
+        },
 
     },
 
@@ -20,6 +31,17 @@ local luggage = {
         inv_size = {H = 2, W = 2},
         category = "luggage",
         mult = 2,  
+        -- Order Data
+        order = true,
+        work = 5,
+        cost = 1,
+        avail_min = 5,
+        avail_max = 10,
+        options = {
+
+            { name = "Crunch Time", cost_mult = 2, work_mult = 0.5 },
+
+        },
 
     },
 

@@ -3,6 +3,7 @@ local jacl_definitions = require("data.jacl")
 local agent_uix = require("src.rndr.agent_uix")
 local agent_logic = require("src.sys.agent_logic")
 local econ = require("src.sys.econ")
+local dev_contingencies = require("data.dev_contingencies")
 local equip_logic = require("src.sys.equip_logic")
 local luggage = require("src.sys.luggage")
 local sfx_logic = require("src.sys.sfx_logic")
@@ -16,6 +17,8 @@ local rumor_missions = require("src.sys.rumor_missions")
 local rumor_chain = require("src.rndr.jacl_rumor_mission_chain")
 local reward_uix = require("src.rndr.reward_uix")
 local calendar = require("src.sys.calendar")
+local orders = require("src.sys.orders")
+local event_logic = require("src.sys.event_logic")
 
 local jacl_state = {
     name = "JACL",
@@ -48,6 +51,7 @@ local jacl_state = {
     rumor_mission_scroll_y = 0,
     rumor_map_preview_cache = {},
     scratch_image = nil,
+    contingency_image = nil,
     econ_font = nil,
     strike_agent_press = nil,
     pending_reward_summary = nil,
@@ -55,6 +59,8 @@ local jacl_state = {
     cashout_flash = nil,
     econ_pulse = nil,
     calendar = nil,
+    save_slot = nil,
+    save_signature = nil,
 }
 
 local BACKGROUND_COLOR = { 0.018, 0.018, 0.022, 1 }
@@ -85,6 +91,7 @@ local ECON_ICON_SIZE = 42
 local ECON_TILE_COLOR = { 0, 0, 0, 0.88 }
 local ECON_TILE_OUTLINE_COLOR = { 1, 1, 1, 0.92 }
 local ECON_TEXT_COLOR = { 0, 1, 167 / 255, 1 }
+local CONTINGENCY_TEXT_COLOR = { 36 / 255, 208 / 255, 1, 1 }
 local STRIKE_AGENT_DRAG_THRESHOLD = 6
 local REWARDS_BACKDROP_COLOR = { 0, 0, 0, 0.82 }
 local REWARDS_PANEL_COLOR = { 0, 0, 0, 0.96 }
@@ -139,6 +146,13 @@ local function drawOfficer(officer, center_x, top_y, max_w, max_h, font)
     local label_h = font:getHeight() * math.max(#wrapped_lines, 1)
     local image_y = top_y + label_h + OFFICER_LABEL_GAP
 
+    officer.label_rect = {
+        x = center_x - max_w / 2,
+        y = top_y,
+        w = max_w,
+        h = label_h,
+    }
+
     if officer.image then
         local image_w = officer.image:getWidth()
         local image_h = officer.image:getHeight()
@@ -146,8 +160,32 @@ local function drawOfficer(officer, center_x, top_y, max_w, max_h, font)
         local draw_w = image_w * scale
         local draw_h = image_h * scale
 
+        officer.portrait_rect = {
+            x = center_x - draw_w / 2,
+            y = image_y,
+            w = draw_w,
+            h = draw_h,
+        }
+
+        local previous_shader = love.graphics.getShader()
+
+        if officer.orders_locked then
+            love.graphics.setShader(officers.getGreyscaleShader())
+        end
+
         love.graphics.setColor(1, 1, 1, 1)
         love.graphics.draw(officer.image, center_x - draw_w / 2, image_y, 0, scale, scale)
+
+        if officer.orders_locked then
+            love.graphics.setShader(previous_shader)
+        end
+    else
+        officer.portrait_rect = {
+            x = center_x - max_w / 2,
+            y = image_y,
+            w = max_w,
+            h = max_h,
+        }
     end
 end
 
@@ -192,26 +230,29 @@ local function drawOfficerColumn(officer_list, center_x, screen_h, font)
     end
 end
 
-local function drawEconTile(state, screen_h, options)
+local function drawBalanceTile(state, screen_w, screen_h, options)
     options = options or {}
 
-    local balance_text = tostring(econ.getBalance())
+    local balance_text = tostring(math.max(0, math.floor(tonumber(options.value) or 0)))
     local balance_w = state.econ_font:getWidth(balance_text)
     local tile_w = math.max(
         ECON_TILE_MIN_W,
         ECON_TILE_PADDING + ECON_ICON_SIZE + ECON_TILE_PADDING + balance_w + ECON_VALUE_RIGHT_PADDING
     )
+    local tile_x = options.align == "right"
+        and screen_w - ECON_TILE_X - tile_w
+        or ECON_TILE_X
     local tile_y = screen_h - ECON_TILE_BOTTOM - ECON_TILE_H
-    local icon_x = ECON_TILE_X + ECON_TILE_PADDING
+    local icon_x = tile_x + ECON_TILE_PADDING
     local icon_y = tile_y + (ECON_TILE_H - ECON_ICON_SIZE) / 2
     local text_area_x = icon_x + ECON_ICON_SIZE + ECON_TILE_PADDING
-    local text_area_w = ECON_TILE_X + tile_w - ECON_VALUE_RIGHT_PADDING - text_area_x
+    local text_area_w = tile_x + tile_w - ECON_VALUE_RIGHT_PADDING - text_area_x
     local text_x = text_area_x + (text_area_w - balance_w) / 2
     local text_y = tile_y + (ECON_TILE_H - state.econ_font:getHeight()) / 2
     local scale = tonumber(options.scale) or 1
 
     if scale ~= 1 then
-        local center_x = ECON_TILE_X + tile_w / 2
+        local center_x = tile_x + tile_w / 2
         local center_y = tile_y + ECON_TILE_H / 2
 
         love.graphics.push()
@@ -221,23 +262,23 @@ local function drawEconTile(state, screen_h, options)
     end
 
     love.graphics.setColor(ECON_TILE_COLOR)
-    love.graphics.rectangle("fill", ECON_TILE_X, tile_y, tile_w, ECON_TILE_H)
+    love.graphics.rectangle("fill", tile_x, tile_y, tile_w, ECON_TILE_H)
     love.graphics.setColor(ECON_TILE_OUTLINE_COLOR)
     love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", ECON_TILE_X, tile_y, tile_w, ECON_TILE_H)
+    love.graphics.rectangle("line", tile_x, tile_y, tile_w, ECON_TILE_H)
     love.graphics.setLineWidth(1)
 
-    if state.scratch_image then
-        local image_w = state.scratch_image:getWidth()
-        local image_h = state.scratch_image:getHeight()
-        local scale = math.min(ECON_ICON_SIZE / image_w, ECON_ICON_SIZE / image_h)
+    if options.image then
+        local image_w = options.image:getWidth()
+        local image_h = options.image:getHeight()
+        local image_scale = math.min(ECON_ICON_SIZE / image_w, ECON_ICON_SIZE / image_h)
 
         love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.draw(state.scratch_image, icon_x, icon_y, 0, scale, scale)
+        love.graphics.draw(options.image, icon_x, icon_y, 0, image_scale, image_scale)
     end
 
     love.graphics.setFont(state.econ_font)
-    love.graphics.setColor(ECON_TEXT_COLOR)
+    love.graphics.setColor(options.text_color or ECON_TEXT_COLOR)
     love.graphics.print(balance_text, text_x, text_y)
 
     if scale ~= 1 then
@@ -245,11 +286,29 @@ local function drawEconTile(state, screen_h, options)
     end
 
     return {
-        x = ECON_TILE_X,
+        x = tile_x,
         y = tile_y,
         w = tile_w,
         h = ECON_TILE_H,
     }
+end
+
+local function drawEconTile(state, screen_w, screen_h, options)
+    options = options or {}
+    options.value = econ.getBalance()
+    options.image = state.scratch_image
+    options.text_color = ECON_TEXT_COLOR
+
+    return drawBalanceTile(state, screen_w, screen_h, options)
+end
+
+local function drawContingencyTile(state, screen_w, screen_h)
+    return drawBalanceTile(state, screen_w, screen_h, {
+        value = dev_contingencies.contingency,
+        image = state.contingency_image,
+        text_color = CONTINGENCY_TEXT_COLOR,
+        align = "right",
+    })
 end
 
 local function drawCashoutFlash(state, econ_rect)
@@ -316,10 +375,12 @@ local function getRumorMapPreview(state, entry)
     return room
 end
 
-local function armStrikeAgentPress(state, agent, slot_index, x, y)
+local function armStrikeAgentPress(state, agent, slot_index, x, y, drag_kind, officer)
     state.strike_agent_press = {
         agent = agent,
         slot_index = slot_index,
+        drag_kind = drag_kind or "strike",
+        officer = officer,
         x = x,
         y = y,
     }
@@ -346,6 +407,16 @@ local function beginStrikeAgentDrag(state)
     end
 
     state.strike_agent_press = nil
+
+    if press.drag_kind == "officer_slot" then
+        if not press.officer or press.officer.assigned_agent ~= press.agent then
+            return false
+        end
+
+        return officers.startDragFromSlot(press.officer)
+    elseif press.drag_kind == "officer_roster" then
+        return officers.startDrag(press.agent)
+    end
 
     if press.slot_index then
         if strike_prep.getSlots()[press.slot_index] ~= press.agent then
@@ -739,6 +810,11 @@ local function redeemRewardsAtPoint(state, x, y)
 end
 
 function jacl_state:enter(previous_state, transition_options)
+    if transition_options and transition_options.save_slot then
+        self.save_slot = transition_options.save_slot
+        self.save_signature = transition_options.signature
+    end
+
     self.pending_reward_summary = previous_state == "mission"
         and transition_options
         and transition_options.rewards
@@ -753,12 +829,17 @@ function jacl_state:enter(previous_state, transition_options)
     agent_uix.setModalOffset(JACL_MODAL_OFFSET_Y)
     agent_uix.setEquipmentCardDrawEnabled(false)
     strike_prep.exit()
+    officers.cancelDrag()
+    orders.close()
 
     self.officer_font = love.graphics.newFont("assets/fonts/Furore.otf", 14)
     self.jacl_font = love.graphics.newFont("assets/fonts/Furore.otf", 18)
     self.econ_font = love.graphics.newFont("assets/fonts/Furore.otf", 22)
     self.scratch_image = self.scratch_image or image_loader.newImage("assets/images/icons/scratch.webp")
+    self.contingency_image = self.contingency_image
+        or image_loader.newImage("assets/images/icons/contingency.webp")
     self.calendar = self.calendar or calendar.new()
+    event_logic.reset()
     agent_roster.reset(self)
     cache_rail.reset(self)
     self.strike_button_rect = nil
@@ -768,8 +849,16 @@ function jacl_state:enter(previous_state, transition_options)
     self.rumor_map_preview_cache = {}
     self.strike_agent_press = nil
     self.dev_map_preview_room = map_preview.load("assets/maps/devmap.lua")
-    self.left_officers = officers.loadByIds(OFFICER_LEFT_IDS)
-    self.right_officers = officers.loadByIds(OFFICER_RIGHT_IDS)
+    if #self.left_officers == 0 then
+        self.left_officers = officers.loadByIds(OFFICER_LEFT_IDS)
+    end
+
+    if #self.right_officers == 0 then
+        self.right_officers = officers.loadByIds(OFFICER_RIGHT_IDS)
+    end
+
+    officers.initializePopulation({ self.left_officers, self.right_officers }, 12)
+
     self.definition = jacl_definitions[1]
     self.image = nil
     self.image_path = nil
@@ -798,7 +887,21 @@ function jacl_state:transitionComplete(previous_state)
 end
 
 function jacl_state:update(dt)
-    calendar.update(self.calendar, dt)
+    calendar.update(self.calendar, dt, {
+        pause_event_phase = event_logic.hasPendingEvents(self.calendar),
+    })
+    event_logic.update(self.calendar, dt)
+
+    local highlighted_agent = event_logic.getHighlightedAgent()
+
+    if highlighted_agent and self.roster_highlight_agent ~= highlighted_agent then
+        agent_roster.focusAgent(self, highlighted_agent)
+    elseif not highlighted_agent and self.roster_highlight_agent then
+        agent_roster.clearFocusedAgent(self)
+    end
+
+    orders.update(dt)
+    officers.update(dt)
 
     local claim = self.reward_modal and self.reward_modal.claim_animation or nil
 
@@ -844,6 +947,8 @@ function jacl_state:leave(next_state)
     end
 
     strike_prep.exit()
+    officers.cancelDrag()
+    orders.close()
 end
 
 function jacl_state:draw()
@@ -889,6 +994,11 @@ function jacl_state:draw()
     else
         drawOfficerColumn(self.left_officers, left_column_x, screen_h, self.officer_font)
         drawOfficerColumn(self.right_officers, right_column_x, screen_h, self.officer_font)
+        officers.drawPanels({ self.left_officers, self.right_officers }, self.jacl_backing_rect, {
+            outline_color = roster_theme.outline_color,
+            draw_agent_portrait = agent_roster.drawAgentPortrait,
+            font = self.officer_font,
+        })
     end
 
     love.graphics.setColor(BACKING_COLOR)
@@ -923,8 +1033,16 @@ function jacl_state:draw()
         cache_rail.clearTransient(self)
     end
 
-    calendar.draw(self.calendar, screen_w, screen_h)
-    drawEconTile(self, screen_h)
+    local completion_preview = orders.isOpen() and orders.getCompletionPreview(self.calendar) or nil
+    local invoice_preview = orders.isOpen() and orders.getInvoicePreview(self.calendar) or nil
+
+    calendar.draw(self.calendar, screen_w, screen_h, {
+        hide_phase_tracker = orders.isOpen(),
+        completion_preview = completion_preview,
+        invoice_preview = invoice_preview,
+    })
+    drawEconTile(self, screen_w, screen_h)
+    drawContingencyTile(self, screen_w, screen_h)
     agent_roster.draw(self)
     strike_uix.drawPanel(self, agent_roster.getLayout(), {
         font = self.roster_font,
@@ -945,6 +1063,10 @@ function jacl_state:draw()
         radius = agent_roster.getPortraitRadius(),
         draw_agent_portrait = agent_roster.drawAgentPortrait,
     })
+    officers.drawDrag({
+        radius = agent_roster.getPortraitRadius(),
+        draw_agent_portrait = agent_roster.drawAgentPortrait,
+    })
     drawRewardsModal(self)
 
     if self.reward_modal or self.cashout_flash or self.econ_pulse then
@@ -956,9 +1078,57 @@ function jacl_state:draw()
             pulse_scale = 1 + 0.08 * math.sin(math.pi * progress)
         end
 
-        local econ_rect = drawEconTile(self, screen_h, { scale = pulse_scale })
+        local econ_rect = drawEconTile(self, screen_w, screen_h, { scale = pulse_scale })
+
+        drawContingencyTile(self, screen_w, screen_h)
 
         drawCashoutFlash(self, econ_rect)
+    end
+
+    if orders.isOpen() then
+        local active_officer = orders.getOfficer()
+        local calendar_bounds = calendar.getVisualBounds(self.calendar, screen_w, screen_h)
+
+        orders.draw({
+            screen_w = screen_w,
+            screen_h = screen_h,
+            backing_rect = self.jacl_backing_rect,
+            modal_top = agent_roster.getLayout().y,
+            calendar_bounds = calendar_bounds,
+            officer_bounds = officers.getOfficerVisualBounds(active_officer, self.jacl_backing_rect),
+            completion_preview = completion_preview,
+            invoice_preview = invoice_preview,
+        })
+    end
+
+    if event_logic.isOpen() then
+        event_logic.drawDimmer(screen_w, screen_h)
+        calendar.draw(self.calendar, screen_w, screen_h)
+        drawEconTile(self, screen_w, screen_h)
+        drawContingencyTile(self, screen_w, screen_h)
+        agent_roster.draw(self)
+        event_logic.drawModal(screen_w, screen_h)
+    end
+
+    if event_logic.isRetributionEffectActive() then
+        local effect = event_logic.getRetributionEffect()
+        local officer_bounds = effect
+            and effect.officer
+            and officers.getOfficerVisualBounds(
+                effect.officer,
+                self.jacl_backing_rect
+            )
+            or nil
+        local agent_rect = effect
+            and agent_roster.getAgentVisualRect(self, effect.agent)
+            or nil
+
+        event_logic.drawRetributionEffect(
+            screen_w,
+            screen_h,
+            officer_bounds,
+            agent_rect
+        )
     end
 
     love.graphics.setColor(1, 1, 1, 1)
@@ -969,11 +1139,14 @@ local function endCommandPhase(state)
         return false
     end
 
+    orders.refillEmptyOfferings({ state.left_officers, state.right_officers })
     sfx_logic.playNamed("command")
     state.strike_agent_press = nil
     state.roster_search_focused = false
     cache_rail.clearTransient(state)
     strike_prep.exit()
+    officers.cancelDrag()
+    orders.close()
 
     while agent_uix.closeModal() do
         -- Close nested viewers before closing their parent agent modal.
@@ -983,6 +1156,14 @@ local function endCommandPhase(state)
 end
 
 function jacl_state:keypressed(key)
+    if orders.isOpen() then
+        if key == "escape" then
+            orders.close()
+        end
+
+        return
+    end
+
     if self.reward_modal then
         return
     end
@@ -1014,7 +1195,55 @@ function jacl_state:keypressed(key)
 end
 
 function jacl_state:mousepressed(x, y, button)
+    if event_logic.isRetributionEffectActive() then
+        local result = event_logic.mousepressedRetributionEffect()
+
+        if result == "dismissed" then
+            agent_roster.clearFocusedAgent(self)
+
+            if not event_logic.hasPendingEvents(self.calendar) then
+                calendar.completeEventPhase(self.calendar)
+            end
+        end
+
+        return
+    end
+
+    if event_logic.isOpen() then
+        local result = event_logic.mousepressed(x, y, button, self.calendar)
+
+        if result == "resolved" then
+            if not event_logic.isRetributionEffectActive() then
+                agent_roster.clearFocusedAgent(self)
+            end
+
+            if not event_logic.hasPendingEvents(self.calendar) then
+                calendar.completeEventPhase(self.calendar)
+            end
+        elseif result == "skipped" then
+            return
+        end
+
+        return
+    end
+
     if not calendar.isCommandPhase(self.calendar) then
+        return
+    end
+
+    if orders.isOpen() then
+        local calendar_bounds = calendar.getVisualBounds(
+            self.calendar,
+            love.graphics.getWidth(),
+            love.graphics.getHeight()
+        )
+        local modal_rect = orders.getModalRect(
+            self.jacl_backing_rect,
+            calendar_bounds,
+            agent_roster.getLayout().y
+        )
+
+        orders.mousepressed(x, y, button, modal_rect, self.calendar)
         return
     end
 
@@ -1046,6 +1275,47 @@ function jacl_state:mousepressed(x, y, button)
 
     if button ~= 1 then
         return
+    end
+
+    local officer_lists = { self.left_officers, self.right_officers }
+
+    if not strike_prep.isActive() then
+        local orders_officer = officers.getOrdersOfficerAtPoint(
+            officer_lists,
+            self.jacl_backing_rect,
+            x,
+            y
+        )
+
+        if orders_officer then
+            orders.open(orders_officer)
+            return
+        end
+
+        local clicked_officer = officers.getOfficerAtPoint(officer_lists, x, y)
+
+        if clicked_officer then
+            if officers.togglePanel(clicked_officer) then
+                sfx_logic.playNamed("token_select")
+            end
+
+            return
+        end
+
+        local slot_officer = officers.getSlotOfficerAtPoint(officer_lists, self.jacl_backing_rect, x, y)
+
+        if slot_officer and slot_officer.assigned_agent then
+            armStrikeAgentPress(
+                self,
+                slot_officer.assigned_agent,
+                nil,
+                x,
+                y,
+                "officer_slot",
+                slot_officer
+            )
+            return
+        end
     end
 
     if self.launch_button_rect and pointInRect(x, y, self.launch_button_rect) then
@@ -1085,6 +1355,9 @@ function jacl_state:mousepressed(x, y, button)
         if strike_prep.isActive() then
             armStrikeAgentPress(self, agent, nil, x, y)
             return
+        elseif officers.hasOpenPanel(officer_lists) then
+            armStrikeAgentPress(self, agent, nil, x, y, "officer_roster")
+            return
         end
 
         openAgentModal(self, agent)
@@ -1093,6 +1366,10 @@ end
 
 function jacl_state:mousereleased(x, y, button)
     if not calendar.isCommandPhase(self.calendar) then
+        return
+    end
+
+    if orders.isOpen() then
         return
     end
 
@@ -1129,6 +1406,28 @@ function jacl_state:mousereleased(x, y, button)
         return
     end
 
+    if button == 1 and officers.getDragAgent() then
+        local officer_lists = { self.left_officers, self.right_officers }
+        local target_officer = officers.getSlotOfficerAtPoint(
+            officer_lists,
+            self.jacl_backing_rect,
+            x,
+            y
+        )
+        local roster_layout = agent_roster.getLayout()
+
+        if target_officer and officers.placeDraggedAgent(target_officer) then
+            sfx_logic.playNamed("equip")
+        elseif pointInRect(x, y, roster_layout) then
+            officers.returnDraggedToRoster()
+            sfx_logic.playNamed("equip")
+        else
+            officers.cancelDrag()
+        end
+
+        return
+    end
+
     if cache_rail.mousereleased(self, x, y, button) then
         return
     end
@@ -1143,6 +1442,10 @@ function jacl_state:mousemoved(x, y)
         return
     end
 
+    if orders.isOpen() then
+        return
+    end
+
     if self.strike_agent_press and strikeAgentPressExceededThreshold(self, x, y) then
         beginStrikeAgentDrag(self)
     end
@@ -1150,6 +1453,10 @@ end
 
 function jacl_state:textinput(text)
     if not calendar.isCommandPhase(self.calendar) then
+        return
+    end
+
+    if orders.isOpen() then
         return
     end
 
@@ -1169,7 +1476,17 @@ function jacl_state:textinput(text)
 end
 
 function jacl_state:wheelmoved(x, y)
+    if event_logic.isOpen() then
+        event_logic.wheelmoved(x, y)
+        return
+    end
+
     if not calendar.isCommandPhase(self.calendar) then
+        return
+    end
+
+    if orders.isOpen() then
+        orders.wheelmoved(x, y)
         return
     end
 

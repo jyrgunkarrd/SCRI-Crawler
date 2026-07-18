@@ -139,6 +139,8 @@ agent_uix.equipment_card_draw_enabled = true
 local equip_drag = nil
 local pinned_equipment = nil
 local hovered_preview_card_key = nil
+agent_uix.fate_deck_scroll = 0
+agent_uix.fate_discard_scroll = 0
 local BLOCK_GLYPH = "\239\143\173"
 local BLOCK_COLOR = { 0.7412, 0.6824, 0.7176, 1 }
 local STAT_COLORS = {
@@ -1125,11 +1127,20 @@ end
 
 local function getEquipmentPreviewLexRow(item, preview)
     local cards = equip_logic.getLexDeckDefinitionCards(item)
+    local font = love.graphics.getFont()
     local y = preview.content_y + EQUIP_PREVIEW_HEADER_H + EQUIP_PREVIEW_ROW_GAP
         + EQUIP_PREVIEW_IMAGE_SIZE + EQUIP_PREVIEW_ROW_GAP
 
     if item.stat_req and #item.stat_req > 0 then
         y = y + #item.stat_req * 22 + EQUIP_PREVIEW_ROW_GAP
+    end
+
+    local preview_text = tostring(item and item.previewtext or "")
+
+    if preview_text ~= "" then
+        local _, preview_lines = font:getWrap(preview_text, preview.content_w)
+
+        y = y + math.max(1, #preview_lines) * font:getHeight() + EQUIP_PREVIEW_ROW_GAP
     end
 
     if #cards == 0 then
@@ -1322,6 +1333,17 @@ local function drawEquipmentHoverPreview(item, layout)
         end
 
         cursor_y = cursor_y + EQUIP_PREVIEW_ROW_GAP
+    end
+
+    local preview_text = tostring(item and item.previewtext or "")
+
+    if preview_text ~= "" then
+        local _, preview_lines = previous_font:getWrap(preview_text, content_w)
+        local preview_text_h = math.max(1, #preview_lines) * previous_font:getHeight()
+
+        love.graphics.setColor(TEXT_COLOR)
+        love.graphics.printf(preview_text, content_x, cursor_y, content_w, "center")
+        cursor_y = cursor_y + preview_text_h + EQUIP_PREVIEW_ROW_GAP
     end
 
     if not agent_uix.drawEquipmentChoiceRow(item, preview, cursor_y, previous_font) then
@@ -1533,27 +1555,45 @@ local function drawSlotWindow(agent, layout)
     drawEquipment(agent, layout)
 end
 
-local function drawFateRows(entries, section_x, section_y, section_w, section_h)
+function agent_uix.getFateMaxScroll(entries, section_h)
+    local viewport_h = math.max(0, section_h - MODAL_PAD * 2)
+    local content_h = #entries * FATE_ROW_H + math.max(0, #entries - 1) * FATE_ROW_GAP
+
+    return math.max(0, content_h - viewport_h)
+end
+
+local function drawFateRows(entries, section_x, section_y, section_w, section_h, scroll)
     local row_x = section_x + MODAL_PAD
-    local row_y = section_y + MODAL_PAD
+    local row_y = section_y + MODAL_PAD - scroll
     local row_w = section_w - MODAL_PAD * 2
+    local viewport_y = section_y + MODAL_PAD
+    local viewport_h = math.max(0, section_h - MODAL_PAD * 2)
+
+    love.graphics.push("all")
+    love.graphics.setScissor(row_x, viewport_y, row_w, viewport_h)
 
     for index, entry in ipairs(entries) do
         local y = row_y + (index - 1) * (FATE_ROW_H + FATE_ROW_GAP)
 
-        if y + FATE_ROW_H <= section_y + section_h - MODAL_PAD then
+        if y + FATE_ROW_H >= viewport_y and y <= viewport_y + viewport_h then
             love.graphics.setColor(FATE_ROW_COLOR)
             love.graphics.rectangle("fill", row_x, y, row_w, FATE_ROW_H)
             love.graphics.setColor(FATE_ROW_BORDER_COLOR)
             love.graphics.rectangle("line", row_x, y, row_w, FATE_ROW_H)
 
             love.graphics.setColor(getFateValueColor(entry))
-            love.graphics.print(entry.value_text, row_x + 14, y + 5)
+            love.graphics.print(
+                entry.id == "BSCFATIGUE" and "FATIGUE" or entry.value_text,
+                row_x + 14,
+                y + 5
+            )
 
             love.graphics.setColor(TEXT_COLOR)
             love.graphics.printf("x" .. tostring(entry.quantity), row_x + row_w - 58, y + 5, 44, "right")
         end
     end
+
+    love.graphics.pop()
 end
 
 local function drawFateDeckWindow(unit, layout)
@@ -1580,8 +1620,31 @@ local function drawFateDeckWindow(unit, layout)
     love.graphics.setLineWidth(1)
     love.graphics.setFont(fate_font)
 
-    drawFateRows(deck, deck_section_x, deck_section_y, layout.deck_w, section_h)
-    drawFateRows(discard, discard_section_x, discard_section_y, layout.deck_w, section_h)
+    agent_uix.fate_deck_scroll = math.max(
+        0,
+        math.min(agent_uix.fate_deck_scroll, agent_uix.getFateMaxScroll(deck, section_h))
+    )
+    agent_uix.fate_discard_scroll = math.max(
+        0,
+        math.min(agent_uix.fate_discard_scroll, agent_uix.getFateMaxScroll(discard, section_h))
+    )
+
+    drawFateRows(
+        deck,
+        deck_section_x,
+        deck_section_y,
+        layout.deck_w,
+        section_h,
+        agent_uix.fate_deck_scroll
+    )
+    drawFateRows(
+        discard,
+        discard_section_x,
+        discard_section_y,
+        layout.deck_w,
+        section_h,
+        agent_uix.fate_discard_scroll
+    )
 
     love.graphics.setFont(previous_font)
 end
@@ -1710,6 +1773,8 @@ function agent_uix.openModal(unit, kind)
     modal_kind = kind or "agent"
     pinned_equipment = nil
     hovered_preview_card_key = nil
+    agent_uix.fate_deck_scroll = 0
+    agent_uix.fate_discard_scroll = 0
     action_deck_viewer.close()
     sfx_logic.playNamed("token_select")
 
@@ -1962,6 +2027,8 @@ function agent_uix.closeModal()
 
     modal_unit = nil
     modal_kind = nil
+    agent_uix.fate_deck_scroll = 0
+    agent_uix.fate_discard_scroll = 0
 
     return true
 end
@@ -1971,7 +2038,52 @@ function agent_uix.isModalOpen()
 end
 
 function agent_uix.wheelmoved(x, y)
-    return action_deck_viewer.wheelmoved(x, y)
+    if action_deck_viewer.isOpen() then
+        return action_deck_viewer.wheelmoved(x, y)
+    end
+
+    if not modal_unit or modal_kind == "door" then
+        return false
+    end
+
+    local layout = (modal_kind == "enemy" or modal_kind == "hazard")
+        and getEnemyModalLayout()
+        or getModalLayout()
+    local section_h = (layout.deck_h - FATE_SECTION_GAP) / 2
+    local mouse_x, mouse_y = love.mouse.getPosition()
+    local wheel_delta = y ~= 0 and y or -x
+
+    if pointInRect(mouse_x, mouse_y, layout.deck_x, layout.deck_y, layout.deck_w, section_h) then
+        local max_scroll = agent_uix.getFateMaxScroll(fate_logic.getAgentDeck(modal_unit), section_h)
+
+        agent_uix.fate_deck_scroll = math.max(
+            0,
+            math.min(
+                max_scroll,
+                agent_uix.fate_deck_scroll - wheel_delta * (FATE_ROW_H + FATE_ROW_GAP) * 2
+            )
+        )
+
+        return true
+    end
+
+    local discard_y = layout.deck_y + section_h + FATE_SECTION_GAP
+
+    if pointInRect(mouse_x, mouse_y, layout.deck_x, discard_y, layout.deck_w, section_h) then
+        local max_scroll = agent_uix.getFateMaxScroll(fate_logic.getAgentDiscard(modal_unit), section_h)
+
+        agent_uix.fate_discard_scroll = math.max(
+            0,
+            math.min(
+                max_scroll,
+                agent_uix.fate_discard_scroll - wheel_delta * (FATE_ROW_H + FATE_ROW_GAP) * 2
+            )
+        )
+
+        return true
+    end
+
+    return false
 end
 
 return agent_uix

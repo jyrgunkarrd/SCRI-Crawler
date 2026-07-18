@@ -2,6 +2,7 @@ local sfx_logic = {}
 
 local SFX_DIR = "assets/audio/sfx"
 local VOICE_DIR = "assets/audio/sfx/voices"
+local OFFICER_VOICE_DIR = "assets/audio/sfx/voices/officers"
 local sources = {}
 local missing = {}
 
@@ -55,6 +56,14 @@ function sfx_logic.playAgentVoice(agent)
     end
 
     return sfx_logic.play(("%s/%s.wav"):format(VOICE_DIR, agent.id))
+end
+
+function sfx_logic.playOfficerVoice(officer)
+    if not officer or not officer.id then
+        return false
+    end
+
+    return sfx_logic.play(("%s/%s.wav"):format(OFFICER_VOICE_DIR, officer.id))
 end
 
 function sfx_logic.playAgentSelect(agent)

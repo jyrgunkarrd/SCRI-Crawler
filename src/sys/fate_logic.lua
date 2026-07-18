@@ -2,6 +2,8 @@ local fate_logic = {}
 
 local FATE_STACKS_PATH = "data.fate_stacks"
 local FATE_TILES_PATH = "data.fate_tiles"
+local FATIGUE_TILE_ID = "BSCFATIGUE"
+local FATIGUE_DISPLAY_ORDER = 0
 local TOTAL_FATE_UPGRADES = 17
 local MAX_PHYSICAL_INVESTMENT = 400
 local FATE_SCALE_BANDS = {
@@ -182,7 +184,9 @@ local function stackCards(cards)
         if not stacks[card.id] then
             local stack = buildRuntimeCard(card)
             stack.quantity = 0
-            stack.display_order = card.display_order or math.huge
+            stack.display_order = card.id == FATIGUE_TILE_ID
+                and FATIGUE_DISPLAY_ORDER
+                or card.display_order or math.huge
             stacks[card.id] = stack
             result[#result + 1] = stack
         end
@@ -267,6 +271,20 @@ function fate_logic.initializeFateDeck(agent)
         end
     end
 
+    for tile_id, quantity in pairs(agent.fate_extra_tiles or {}) do
+        local card = tile_lookup[tile_id]
+
+        if card then
+            local display_order = tile_id == FATIGUE_TILE_ID
+                and FATIGUE_DISPLAY_ORDER
+                or #deck + 1
+
+            for _ = 1, math.max(0, math.floor(tonumber(quantity) or 0)) do
+                deck[#deck + 1] = buildRuntimeCard(card, display_order, fate_scale)
+            end
+        end
+    end
+
     shuffle(deck)
 
     agent.fate_runtime = {
@@ -275,6 +293,48 @@ function fate_logic.initializeFateDeck(agent)
         progression_steps = progression_steps,
         fate_scale = fate_scale,
     }
+end
+
+function fate_logic.addTiles(agent, tile_id, quantity)
+    quantity = math.max(0, math.floor(tonumber(quantity) or 0))
+
+    if not agent or not agent.fate or quantity == 0 then
+        return false
+    end
+
+    local card = getTileLookup()[tile_id]
+
+    if not card then
+        return false
+    end
+
+    fate_logic.initializeFateDeck(agent)
+
+    agent.fate_extra_tiles = agent.fate_extra_tiles or {}
+    agent.fate_extra_tiles[tile_id] = math.max(
+        0,
+        math.floor(tonumber(agent.fate_extra_tiles[tile_id]) or 0)
+    ) + quantity
+
+    local fate_scale = fate_logic.getFateScale(agent)
+    local display_order = tile_id == FATIGUE_TILE_ID
+        and FATIGUE_DISPLAY_ORDER
+        or #(agent.fate_runtime and agent.fate_runtime.deck or {}) + 1
+
+    agent.fate_runtime = agent.fate_runtime or { deck = {}, discard = {} }
+    agent.fate_runtime.deck = agent.fate_runtime.deck or {}
+
+    for _ = 1, quantity do
+        agent.fate_runtime.deck[#agent.fate_runtime.deck + 1] = buildRuntimeCard(
+            card,
+            display_order,
+            fate_scale
+        )
+    end
+
+    shuffle(agent.fate_runtime.deck)
+
+    return true
 end
 
 function fate_logic.drawFateCard(agent)

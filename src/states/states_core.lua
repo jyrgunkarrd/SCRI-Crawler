@@ -21,6 +21,8 @@ local luggage = require("src.sys.luggage")
 local reward_uix = require("src.rndr.reward_uix")
 local cache_rail = require("src.rndr.jacl_equipment_cache_rail")
 local jacl_state = require("src.states.jacl_state")
+local load_save = require("src.states.load_save")
+local mission_consumables = require("src.rndr.mission_consumables")
 
 local states_core = {
     states = {},
@@ -45,6 +47,7 @@ local mission = {
     name = "mission",
     room = nil,
     agents = {},
+    lp_snapshot = {},
     completion_tracker = nil,
     completion_modal_open = false,
 }
@@ -310,6 +313,35 @@ local function collectMissionAgents(room)
     return agents
 end
 
+local function getCurrentLp(agent)
+    local lp = agent and agent.runtime_stats and agent.runtime_stats.lp
+
+    return math.max(0, math.floor(tonumber(lp and lp.current) or 0))
+end
+
+local function resetLpSnapshot(state)
+    state.lp_snapshot = {}
+
+    for _, agent in ipairs(state.agents or {}) do
+        state.lp_snapshot[agent] = getCurrentLp(agent)
+    end
+end
+
+local function playLpGainSfx(state)
+    state.lp_snapshot = state.lp_snapshot or {}
+
+    for _, agent in ipairs(state.agents or {}) do
+        local current = getCurrentLp(agent)
+        local previous = state.lp_snapshot[agent]
+
+        if previous ~= nil and current > previous then
+            sfx_logic.playNamed("lpgain")
+        end
+
+        state.lp_snapshot[agent] = current
+    end
+end
+
 local function normalizeScratchReward(value)
     return math.max(0, math.floor(tonumber(value) or 0))
 end
@@ -456,6 +488,7 @@ local function resetMission()
     mission.completion_equipment_claimed = false
     triggerPlayerRoomSpawns(mission.room)
     mission.agents = collectMissionAgents(mission.room)
+    resetLpSnapshot(mission)
     agent_logic.clearSelection()
     deck_hand_vis.reload()
     map_tiles.clearAnimations()
@@ -484,6 +517,7 @@ function mission:enter(_, launch_options)
     self.completion_modal_open = false
     triggerPlayerRoomSpawns(self.room)
     self.agents = collectMissionAgents(self.room)
+    resetLpSnapshot(self)
     agent_logic.clearSelection()
     deck_hand_vis.load()
     map_tiles.clearAnimations()
@@ -507,6 +541,8 @@ function mission:leave(next_state)
 end
 
 function mission:update(dt)
+    playLpGainSfx(self)
+
     if self.completion_modal_open then
         return
     end
@@ -658,6 +694,10 @@ function mission:draw()
     local camera_x, camera_y = camera.getOffset()
     local modal_open = agent_uix.isModalOpen()
     local mission_phase = phase_rules.isMissionPhase()
+    local show_consumables = not modal_open
+        and not self.completion_modal_open
+        and agent_logic.getSelectedAgent() ~= nil
+        and love.keyboard.isDown("c")
 
     map_tiles.drawBase(self.room, camera_x, camera_y)
     if not modal_open and mission_phase then
@@ -701,6 +741,10 @@ function mission:draw()
     overlays.drawExitMarkers(self.room, camera_x, camera_y)
     phase_track.draw(phase_rules.getRound(), phase_rules.getCurrentPhase(), phase_rules.isRoundFlashActive())
     agent_uix.draw()
+
+    if show_consumables then
+        mission_consumables.draw(agent_logic.getSelectedAgent())
+    end
 
     if not modal_open and mission_phase then
         deck_hand_vis.draw()
@@ -762,6 +806,13 @@ function mission:mousepressed(x, y, button)
             end
         end
 
+        return
+    end
+
+    if not agent_uix.isModalOpen()
+        and love.keyboard.isDown("c")
+        and mission_consumables.mousepressed(agent_logic.getSelectedAgent(), x, y, button)
+    then
         return
     end
 
@@ -885,6 +936,7 @@ local function startTransition(name, allow_same_state, ...)
     states_core.transition = {
         phase = "closing",
         elapsed = 0,
+        closed_frame_drawn = false,
         from_name = states_core.current_name,
         next_name = name,
         args = { ... },
@@ -913,9 +965,16 @@ local function updateTransition(dt)
     transition.elapsed = transition.elapsed + dt
 
     if transition.phase == "closing" and transition.elapsed >= SHUTTER_CLOSE_SECONDS then
-        performStateSwitch(transition.next_name, transition.args, transition.arg_count)
-        transition.phase = "holding"
-        transition.elapsed = 0
+        transition.elapsed = SHUTTER_CLOSE_SECONDS
+
+        -- Do not swap states until a completely closed shutter has actually
+        -- reached the screen. This avoids skipping that frame during an
+        -- uneven or unusually long update.
+        if transition.closed_frame_drawn then
+            performStateSwitch(transition.next_name, transition.args, transition.arg_count)
+            transition.phase = "holding"
+            transition.elapsed = 0
+        end
     elseif transition.phase == "holding" and transition.elapsed >= SHUTTER_HOLD_SECONDS then
         transition.phase = "opening"
         transition.elapsed = 0
@@ -948,9 +1007,18 @@ local function drawTransition()
     local screen_w = love.graphics.getWidth()
     local screen_h = love.graphics.getHeight()
     local coverage = getShutterCoverage(transition)
-    local panel_h = screen_h * 0.5 * coverage
+    local panel_h = math.min(screen_h, math.ceil(screen_h * 0.5 * coverage))
     local top_edge = panel_h
     local bottom_edge = screen_h - panel_h
+
+    -- The state underneath may have used a transform, scissor, stencil, or
+    -- shader. Isolate the shutter so it always covers the physical screen.
+    love.graphics.push("all")
+    love.graphics.origin()
+    love.graphics.setScissor()
+    love.graphics.setStencilTest()
+    love.graphics.setShader()
+    love.graphics.setBlendMode("alpha")
 
     love.graphics.setColor(SHUTTER_COLOR)
     love.graphics.rectangle("fill", 0, 0, screen_w, panel_h)
@@ -987,7 +1055,11 @@ local function drawTransition()
         )
     end
 
-    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.pop()
+
+    if transition.phase == "closing" and coverage >= 1 then
+        transition.closed_frame_drawn = true
+    end
 end
 
 function states_core.getCurrentName()
@@ -999,7 +1071,7 @@ function states_core.getCurrent()
 end
 
 function states_core.load(initial_state)
-    states_core.switch(initial_state or "JACL")
+    states_core.switch(initial_state or "load_save")
 end
 
 function states_core.update(dt)
@@ -1078,6 +1150,7 @@ function states_core.wheelmoved(...)
     end
 end
 
+states_core.register("load_save", load_save)
 states_core.register("JACL", jacl_state)
 states_core.register("mission", mission)
 

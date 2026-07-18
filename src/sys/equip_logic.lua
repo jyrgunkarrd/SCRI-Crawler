@@ -1,4 +1,5 @@
 local equip_logic = {}
+local block_logic = require("src.sys.block_logic")
 
 local EQUIP_DIR = "data/equip"
 local EQUIP_REQUIRE_PREFIX = "data.equip."
@@ -98,11 +99,19 @@ end
 
 local function cloneItem(definition)
     local width, height = buildFootprint(definition.inv_size)
+    local effect = {}
+
+    for effect_id, value in pairs(definition.effect or {}) do
+        effect[effect_id] = value
+    end
+
     local item = {
         uid = next_uid,
         id = definition.id,
         name = definition.name or definition.id,
         category = definition.category,
+        effect = effect,
+        previewtext = definition.previewtext,
         slots = normalizeSlots(definition),
         stat_req = normalizeStatRequirements(definition),
         inv_size = width * height,
@@ -708,6 +717,70 @@ function equip_logic.getInventory(agent)
     equip_logic.initializeAgent(agent)
 
     return agent and agent.equipment_runtime and agent.equipment_runtime.inventory or {}
+end
+
+function equip_logic.isConsumable(item)
+    return tostring(item and item.category or ""):lower() == "consumable"
+end
+
+function equip_logic.getConsumables(agent)
+    local consumables = {}
+
+    for _, item in ipairs(equip_logic.getInventory(agent)) do
+        if equip_logic.isConsumable(item) then
+            consumables[#consumables + 1] = item
+        end
+    end
+
+    return consumables
+end
+
+local function healRuntimeStat(agent, stat_id, amount)
+    local stat = agent and agent.runtime_stats and agent.runtime_stats[stat_id]
+    local value = math.max(0, math.floor(tonumber(amount) or 0))
+
+    if not stat or value <= 0 then
+        return 0
+    end
+
+    local before = math.max(0, math.floor(tonumber(stat.current) or 0))
+    local maximum = math.max(before, math.floor(tonumber(stat.maximum) or before))
+
+    stat.current = math.min(maximum, before + value)
+
+    return stat.current - before
+end
+
+function equip_logic.useConsumable(agent, item)
+    if not agent or not equip_logic.isConsumable(item) or item.location ~= "inventory" then
+        return false
+    end
+
+    local found = false
+
+    for _, inventory_item in ipairs(equip_logic.getInventory(agent)) do
+        if inventory_item == item then
+            found = true
+            break
+        end
+    end
+
+    if not found then
+        return false
+    end
+
+    local effect = item.effect or {}
+
+    healRuntimeStat(agent, "hp", effect.hp_heal)
+    healRuntimeStat(agent, "lp", effect.lp_heal)
+
+    if (tonumber(effect.blk) or 0) > 0 then
+        block_logic.addBlock(agent, effect.blk)
+    end
+
+    equip_logic.removeFromAgent(agent, item)
+
+    return true
 end
 
 function equip_logic.getSlots(agent)

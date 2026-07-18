@@ -287,3 +287,24 @@ We need the calendar now, and a phase tracker for the JACL state.
 Phases would be Sart -> Event -> Command -> End 
 
 
+
+We've got the calendar and phase tracker.
+
+
+Oh, we need consumables. Those need to be next.
+
+Consumable should just be an item that populates a button that consumes the item. Simple. 
+
+
+Let's set-up the officers & their respective offices. 
+
+
+The Blackboard should offer Luggage and Consumables.
+The Plug should upgrade stations
+The Fence should provide booster packs
+The Smoke Pit should activate special JACL effects
+The Helm should offer new Agent recruitment
+The Wet Block should offer healing and fatigue recovery
+
+Each of the cells in the 8 cell block for every officer is an upgrade slot that can be filled with a thing that will modify the station in some way. Upgrades are made in The Plug. 
+

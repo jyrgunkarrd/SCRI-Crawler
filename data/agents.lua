@@ -61,7 +61,7 @@ local agents = {
 
             luggage = {
 
-                "clone",
+                "bag",
                 "brief",
                 "truck",
 
@@ -116,7 +116,7 @@ local agents = {
 
             luggage = {
 
-                "clone",
+                "bag",
                 "brief",
                 "truck",
 
@@ -171,7 +171,7 @@ local agents = {
 
             luggage = {
 
-                "clone",
+                "bag",
                 "brief",
                 "truck",
 
@@ -223,15 +223,6 @@ local agents = {
         start_equip_slot = {
 
             "PHNX",
-            "PHNX",
-            "PHNX",
-            "PHNX",
-            "PHNX",
-            "PHNX",
-            "PHNX",
-            "PHNX",
-            "PHNX",
-            "PHNX",
 
         },
         shout_select = "Say the word.",
@@ -246,9 +237,17 @@ local agents = {
 
             luggage = {
 
-                "clone",
+                "bag",
                 "brief",
                 "truck",
+
+            },
+
+            consumables = {
+
+                "RSTIT",
+                "RSTIT",
+                "BPUL",
 
             },
 
@@ -301,7 +300,7 @@ local agents = {
 
             luggage = {
 
-                "clone",
+                "bag",
                 "brief",
                 "truck",
 
@@ -362,7 +361,7 @@ local agents = {
 
             luggage = {
 
-                "clone",
+                "bag",
                 "brief",
                 "truck",
 
@@ -423,7 +422,7 @@ local agents = {
 
             luggage = {
 
-                "clone",
+                "bag",
                 "brief",
                 "truck",
 
